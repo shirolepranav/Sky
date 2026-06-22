@@ -6,7 +6,7 @@
 
 import Foundation
 
-enum FailureReason: String, CaseIterable, Hashable {
+enum FailureReason: String, CaseIterable, Hashable, Error {
     case gpsSpoofingDetected
     case outsideDaylightWindow
     case poorGPSSignal

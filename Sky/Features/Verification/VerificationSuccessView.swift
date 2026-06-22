@@ -2,7 +2,6 @@
 // S-VER-06 — Rewards the user, clears the shield, and writes today-state flags.
 // Sky_App_Workflow.md §Part 2 S-VER-06; Tech Spec §7.6.
 
-import ManagedSettings
 import SwiftUI
 
 struct VerificationSuccessView: View {
@@ -13,7 +12,6 @@ struct VerificationSuccessView: View {
 
     @State private var mascotState: MascotState = .rainbow
     @State private var displayedStreak: Int = 0
-    @State private var unlockFailed: Bool = false
     @State private var showUnlockError: Bool = false
 
     var body: some View {
@@ -72,9 +70,7 @@ struct VerificationSuccessView: View {
         store.verificationCompletedAt = Date()
 
         // 2. Clear the ManagedSettings shield
-        let settings = ManagedSettingsStore()
-        settings.shield.applications = nil
-        settings.shield.applicationCategories = nil
+        ShieldService.unlockApps()
 
         // 3. Animate streak chip after short delay
         try? await Task.sleep(for: .milliseconds(500))

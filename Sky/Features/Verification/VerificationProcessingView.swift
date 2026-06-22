@@ -1,14 +1,14 @@
 // VerificationProcessingView.swift
 // S-VER-05 — Reassuring processing screen while the verification pipeline runs.
-// Phase 8: accepts VerificationInput (video URL + SensorReading); stub still succeeds.
-// Phase 10 injects the real decision engine; this view's call site is stable from here.
+// Phase 8: accepts VerificationInput (video URL + SensorReading).
+// Phase 10: default service is now RealVerificationService (Vision + DecisionEngine).
 // Sky_App_Workflow.md §Part 2 S-VER-05; Tech Spec §8.5.
 
 import SwiftUI
 
 struct VerificationProcessingView: View {
     let input: VerificationInput
-    var service: any VerificationService = StubVerificationService()
+    var service: any VerificationService = RealVerificationService()
     var onSuccess: () -> Void
     var onFailure: (FailureReason) -> Void
 
