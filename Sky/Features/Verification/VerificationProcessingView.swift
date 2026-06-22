@@ -1,13 +1,13 @@
 // VerificationProcessingView.swift
 // S-VER-05 — Reassuring processing screen while the verification pipeline runs.
-// In Phase 7 the service is StubVerificationService (always succeeds after ~2.5s).
-// Phases 8/9 inject the real implementation; this view is unchanged.
-// Sky_App_Workflow.md §Part 2 S-VER-05.
+// Phase 8: accepts VerificationInput (video URL + SensorReading); stub still succeeds.
+// Phase 10 injects the real decision engine; this view's call site is stable from here.
+// Sky_App_Workflow.md §Part 2 S-VER-05; Tech Spec §8.5.
 
 import SwiftUI
 
 struct VerificationProcessingView: View {
-    let videoURL: URL
+    let input: VerificationInput
     var service: any VerificationService = StubVerificationService()
     var onSuccess: () -> Void
     var onFailure: (FailureReason) -> Void
@@ -68,7 +68,7 @@ struct VerificationProcessingView: View {
             withAnimation { showSlowMessage = true }
         }
 
-        let result = await service.analyze(videoURL: videoURL)
+        let result = await service.analyze(input)
         // Video is deleted by service.analyze before returning
         switch result {
         case .success:           onSuccess()
@@ -79,7 +79,10 @@ struct VerificationProcessingView: View {
 
 #Preview("S-VER-05") {
     VerificationProcessingView(
-        videoURL: URL(filePath: "/tmp/test.mov"),
+        input: VerificationInput(
+            videoURL: URL(filePath: "/tmp/test.mov"),
+            sensorReading: .unavailable
+        ),
         onSuccess: {},
         onFailure: { _ in }
     )

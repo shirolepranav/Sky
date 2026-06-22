@@ -11,7 +11,7 @@ import SwiftUI
 private enum VerificationStep: Hashable {
     case permissionPreflight
     case recording
-    case processing(URL)
+    case processing(URL, SensorReading)
     case success
     case failure(FailureReason)
     case interrupted
@@ -89,15 +89,15 @@ struct VerificationCoordinatorView: View {
         case .recording:
             VideoRecordingView(
                 vm: recordingVM,
-                onFinished:    { url in path.append(.processing(url)) },
+                onFinished:    { url, reading in path.append(.processing(url, reading)) },
                 onCancelled:   { path = []; onDismiss() },
                 onInterrupted: { path.append(.interrupted) }
             )
             .navigationBarHidden(true)
 
-        case .processing(let url):
+        case .processing(let url, let reading):
             VerificationProcessingView(
-                videoURL: url,
+                input: VerificationInput(videoURL: url, sensorReading: reading),
                 onSuccess: { path.append(.success) },
                 onFailure: { reason in
                     flowState.recordFailure()

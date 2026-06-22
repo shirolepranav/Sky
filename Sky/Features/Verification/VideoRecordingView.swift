@@ -9,7 +9,7 @@ import SwiftUI
 
 struct VideoRecordingView: View {
     @ObservedObject var vm: VideoRecordingViewModel
-    var onFinished: (URL) -> Void
+    var onFinished: (URL, SensorReading) -> Void
     var onCancelled: () -> Void
     var onInterrupted: () -> Void
 
@@ -109,7 +109,7 @@ struct VideoRecordingView: View {
         // State routing
         .onChange(of: vm.recordingState) { _, state in
             switch state {
-            case .finished(let url): onFinished(url)
+            case .finished(let url, let reading): onFinished(url, reading)
             case .interrupted: onInterrupted()
             default: break
             }
@@ -242,7 +242,7 @@ private struct PulsingModifier: ViewModifier {
         Color.black.ignoresSafeArea()
         VideoRecordingView(
             vm: VideoRecordingViewModel(),
-            onFinished: { _ in },
+            onFinished: { _, _ in },
             onCancelled: {},
             onInterrupted: {}
         )

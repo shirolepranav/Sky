@@ -45,6 +45,7 @@ final class MockCaptureController: CaptureController {
     }
 
     func makePreviewSession() -> AVCaptureSession? { nil }
+    var captureDevice: AVCaptureDevice? { nil }
 }
 
 // MARK: - Tests

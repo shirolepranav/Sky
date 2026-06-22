@@ -7,10 +7,9 @@
   manifest, launch screen, supported orientations, and the standard CFBundle*
   keys from build settings and merges them on top of this file. This file holds
   only what has no INFOPLIST_KEY_* equivalent: the sky:// URL scheme used by the
-  shield extensions to deep-link back into the app (Roadmap Phase 6).
-
-  Camera / microphone / location usage descriptions are intentionally NOT here
-  yet — they belong to Phase 7 (video recording) per the Roadmap.
+  shield extensions to deep-link back into the app (Roadmap Phase 6) and the
+  four sensor usage descriptions added in Phase 8 (camera + mic from Phase 7
+  were deferred; all four are added together here per the plan).
 -->
 <plist version="1.0">
 <dict>
@@ -27,5 +26,17 @@
 			</array>
 		</dict>
 	</array>
+
+	<!-- Camera / microphone / location (Phase 7 deferred; added Phase 8) -->
+	<key>NSCameraUsageDescription</key>
+	<string>Sky needs the camera to record your 30-second outdoor video for verification.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Sky records audio alongside the video to verify the ambient soundscape.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Sky checks your GPS signal to confirm you're outdoors, not indoors or in a vehicle.</string>
+
+	<!-- Barometer (Phase 8 — CMAltimeter detects altitude changes from walking) -->
+	<key>NSMotionUsageDescription</key>
+	<string>Sky uses the barometer to detect altitude changes consistent with walking outdoors.</string>
 </dict>
 </plist>

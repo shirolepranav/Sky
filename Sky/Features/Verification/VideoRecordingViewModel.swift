@@ -1,9 +1,10 @@
 // VideoRecordingViewModel.swift
 // AVCaptureSession lifecycle, 30-second countdown, prompt sequencing,
 // interruption detection, pre-flight checks, and temp-file management.
-// Sky_App_Workflow.md S-VER-03/04/08; Tech Spec §8.1.
+// Sky_App_Workflow.md S-VER-03/04/08; Tech Spec §8.1/§8.4.
 // All AVFoundation calls are delegated to CaptureController so unit tests
 // can inject a mock without a real device.
+// Phase 8: SensorRecorder runs concurrently during the 30-second window.
 
 import AVFoundation
 import Combine
@@ -16,6 +17,8 @@ import UIKit
 
 protocol CaptureController: AnyObject {
     var isRunning: Bool { get }
+    /// The active video capture device, or nil before session configuration / in tests.
+    var captureDevice: AVCaptureDevice? { get }
     func configure(preset: AVCaptureSession.Preset, completion: @escaping (Result<Void, Error>) -> Void)
     func startRunning()
     func stopRunning()
@@ -29,6 +32,12 @@ final class RealCaptureController: CaptureController {
     private let output = AVCaptureMovieFileOutput()
 
     var isRunning: Bool { session.isRunning }
+
+    var captureDevice: AVCaptureDevice? {
+        session.inputs
+            .compactMap { $0 as? AVCaptureDeviceInput }
+            .first { $0.device.hasMediaType(.video) }?.device
+    }
 
     func configure(preset: AVCaptureSession.Preset, completion: @escaping (Result<Void, Error>) -> Void) {
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
@@ -84,13 +93,14 @@ final class VideoRecordingViewModel: NSObject, ObservableObject {
         case requestingCamera
         case recording
         case interrupted
-        case finished(URL)
+        case finished(URL, SensorReading)
 
         static func == (lhs: RecordingState, rhs: RecordingState) -> Bool {
             switch (lhs, rhs) {
             case (.idle, .idle), (.requestingCamera, .requestingCamera),
                  (.recording, .recording), (.interrupted, .interrupted): return true
-            case (.finished(let a), .finished(let b)): return a == b
+            case (.finished(let a1, let a2), .finished(let b1, let b2)):
+                return a1 == b1 && a2 == b2
             default: return false
             }
         }
@@ -128,6 +138,7 @@ final class VideoRecordingViewModel: NSObject, ObservableObject {
     // MARK: Internals
 
     private let captureController: CaptureController
+    private var sensorRecorder: SensorRecorder?
     private var outputURL: URL?
     private var timerCancellable: AnyCancellable?
     private var interruptionObserver: NSObjectProtocol?
@@ -190,6 +201,10 @@ final class VideoRecordingViewModel: NSObject, ObservableObject {
                         self.captureController.startRunning()
                         // Small pause so the session is fully running before recording
                         try? await Task.sleep(for: .milliseconds(300))
+                        // Start sensor recorder concurrently with video (Tech Spec §8)
+                        let recorder = SensorRecorder(captureDevice: self.captureController.captureDevice)
+                        self.sensorRecorder = recorder
+                        recorder.start()
                         self.captureController.startRecording(to: url, delegate: self)
                         self.startCountdownTimer()
                         self.recordingState = .recording
@@ -203,6 +218,8 @@ final class VideoRecordingViewModel: NSObject, ObservableObject {
     }
 
     func stopSession() {
+        sensorRecorder?.stopAndDiscard()
+        sensorRecorder = nil
         timerCancellable?.cancel()
         timerCancellable = nil
         unregisterInterruptionObserver()
@@ -247,6 +264,8 @@ final class VideoRecordingViewModel: NSObject, ObservableObject {
 
     func confirmCancel() {
         showCancelConfirmation = false
+        sensorRecorder?.stopAndDiscard()
+        sensorRecorder = nil
         timerCancellable?.cancel()
         timerCancellable = nil
         deletePartialFile()
@@ -271,6 +290,8 @@ final class VideoRecordingViewModel: NSObject, ObservableObject {
                 guard let self, self.recordingState == .recording else { return }
                 self.timerCancellable?.cancel()
                 self.timerCancellable = nil
+                self.sensorRecorder?.stopAndDiscard()
+                self.sensorRecorder = nil
                 self.captureController.stopRunning()
                 self.deletePartialFile()
                 self.recordingState = .interrupted
@@ -313,7 +334,9 @@ extension VideoRecordingViewModel: AVCaptureFileOutputRecordingDelegate {
                     self.recordingState = .interrupted
                 }
             } else {
-                self.recordingState = .finished(outputFileURL)
+                let reading = self.sensorRecorder?.stop() ?? .unavailable
+                self.sensorRecorder = nil
+                self.recordingState = .finished(outputFileURL, reading)
             }
         }
     }
