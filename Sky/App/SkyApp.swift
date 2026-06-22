@@ -89,7 +89,7 @@ struct SkyApp: App {
             .fullScreenCover(item: $deepLinkDestination) { link in
                 switch link {
                 case .verify:
-                    VerificationPlaceholderView { deepLinkDestination = nil }
+                    VerificationCoordinatorView { deepLinkDestination = nil }
                 case .emergency:
                     EmergencyUnlockPlaceholderView { deepLinkDestination = nil }
                 }
