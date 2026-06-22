@@ -25,3 +25,6 @@ DerivedData/
 ## Misc tooling noise
 .Rhistory
 *.swp
+
+## Claude Code local settings (machine-specific, not for sharing)
+.claude/settings.local.json
