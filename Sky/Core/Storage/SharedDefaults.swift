@@ -39,6 +39,7 @@ struct SharedDefaults {
         static let didEmergencyUnlockToday = "today_emergency_used"
         static let todayResetToken = "today_reset_token"
         static let verificationCompletedAt = "verification_completed_at"
+        static let pendingDeepLink = "pending_deep_link"
     }
 
     // MARK: Configuration (written by main app, read by extensions)
@@ -97,6 +98,18 @@ struct SharedDefaults {
     var verificationCompletedAt: Date? {
         get { defaults.object(forKey: Key.verificationCompletedAt) as? Date }
         nonmutating set { defaults.set(newValue, forKey: Key.verificationCompletedAt) }
+    }
+
+    // MARK: Shield action hand-off (written by ShieldActionExtension, consumed by main app)
+
+    /// The deep-link destination a shield button requested ("verify" or
+    /// "emergency"), or nil when none is pending. The ShieldActionExtension can't
+    /// open the app directly (UIApplication.shared is unavailable in extensions),
+    /// so SkyApp reads and clears this on becoming active to present the screen
+    /// (Sky_App_Workflow.md S-SHIELD-02 / S-SHIELD-03).
+    var pendingDeepLink: String? {
+        get { defaults.string(forKey: Key.pendingDeepLink) }
+        nonmutating set { defaults.set(newValue, forKey: Key.pendingDeepLink) }
     }
 
     // MARK: Typed selection accessor

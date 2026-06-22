@@ -11,6 +11,12 @@
 // Phase 5: DeviceActivityService is created here and passed as an environment
 // object. Monitoring is re-armed on every foreground while in the .main route so
 // limit edits and app relaunches always reflect the latest configuration.
+//
+// Phase 6: .onOpenURL intercepts sky://verify and sky://emergency deep links
+// sent by SkyShieldAction when the user taps a shield button. The destination
+// is surfaced as a fullScreenCover over whichever route is active (S-SHIELD-02,
+// S-SHIELD-03). AppCoordinator.Route is unchanged — deep-link destinations are
+// transient overlays, not top-level routing states.
 
 import SwiftUI
 
@@ -20,6 +26,7 @@ struct SkyApp: App {
     @StateObject private var deviceActivity = DeviceActivityService()
     @Environment(\.scenePhase) private var scenePhase
     @State private var isReady = false
+    @State private var deepLinkDestination: SkyDeepLink? = nil
 
     init() {
         let args = ProcessInfo.processInfo.arguments
@@ -71,9 +78,34 @@ struct SkyApp: App {
                     if coordinator.route == .main {
                         try? deviceActivity.startMonitoring()
                     }
+                    // Consume a shield-button tap recorded by ShieldActionExtension
+                    // (it can't open the app directly) — S-SHIELD-02 / S-SHIELD-03.
+                    consumePendingDeepLink()
+                }
+            }
+            .onOpenURL { url in
+                deepLinkDestination = SkyDeepLink(url: url)
+            }
+            .fullScreenCover(item: $deepLinkDestination) { link in
+                switch link {
+                case .verify:
+                    VerificationPlaceholderView { deepLinkDestination = nil }
+                case .emergency:
+                    EmergencyUnlockPlaceholderView { deepLinkDestination = nil }
                 }
             }
         }
+    }
+
+    /// Reads and clears the pending shield-button destination from the App Group,
+    /// presenting the matching screen. No-op when nothing is pending.
+    private func consumePendingDeepLink() {
+        let store = SharedDefaults()
+        guard let pending = store.pendingDeepLink,
+              let link = SkyDeepLink(rawValue: pending)
+        else { return }
+        store.pendingDeepLink = nil
+        deepLinkDestination = link
     }
 
     @ViewBuilder
