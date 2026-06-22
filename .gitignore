@@ -1,0 +1,27 @@
+# Xcode / Swift — https://github.com/github/gitignore/blob/main/Swift.gitignore
+
+## macOS
+.DS_Store
+
+## User settings & build state
+xcuserdata/
+*.xcuserstate
+*.xcscmblueprint
+*.xccheckout
+
+## Build products
+build/
+DerivedData/
+*.moved-aside
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+## Swift Package Manager (not used in v1.0, but ignore if it ever appears)
+.build/
+.swiftpm/
+
+## Misc tooling noise
+.Rhistory
+*.swp

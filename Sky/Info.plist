@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Sky main-app Info.plist (Technical Spec §15).
+
+  GENERATE_INFOPLIST_FILE stays YES, so Xcode still synthesizes the scene
+  manifest, launch screen, supported orientations, and the standard CFBundle*
+  keys from build settings and merges them on top of this file. This file holds
+  only what has no INFOPLIST_KEY_* equivalent: the sky:// URL scheme used by the
+  shield extensions to deep-link back into the app (Roadmap Phase 6).
+
+  Camera / microphone / location usage descriptions are intentionally NOT here
+  yet — they belong to Phase 7 (video recording) per the Roadmap.
+-->
+<plist version="1.0">
+<dict>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLName</key>
+			<string>com.shirolepranav.sky.deeplink</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>sky</string>
+			</array>
+		</dict>
+	</array>
+</dict>
+</plist>
