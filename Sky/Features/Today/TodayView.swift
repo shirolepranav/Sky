@@ -15,6 +15,7 @@ import SwiftUI
 
 private enum TodayAppState {
     case paused          // 24-hour Pro pause active — shields off
+    case entitlementMissing // Screen Time authorization revoked while configured
     case noApps          // No app selection persisted yet
     case noLimit         // Selection exists but monitoring not active
     case unblocked       // Monitoring active, under budget
@@ -29,19 +30,29 @@ struct TodayView: View {
     @EnvironmentObject private var mascotManager: MascotStateManager
     @EnvironmentObject private var deviceActivity: DeviceActivityService
     @EnvironmentObject private var streakManager: StreakManager
+    @EnvironmentObject private var storeKit: StoreKitService
+    @EnvironmentObject private var familyControls: FamilyControlsService
 
     // SharedDefaults is read at body evaluation time; refresh triggers @State change.
     @State private var store = SharedDefaults()
     @State private var nimbusScale: CGFloat = 1.0
     @State private var showingVerification = false
     @State private var showingEmergency = false
+    @State private var showingAppSelection = false
+    @State private var showingLimitConfig = false
     @State private var pendingBadge: BadgeID? = nil
+    #if DEBUG
+    @State private var showingDebugMenu = false
+    #endif
 
     // MARK: Derived state
 
     private var appState: TodayAppState {
         // An active pause overrides everything — all shields are off.
         if store.isPaused                 { return .paused }
+        // Screen Time access lost while configured — nothing can be enforced until
+        // the user re-grants it (top-level routing also recovers on next foreground).
+        if store.hasSelection && !familyControls.isApproved { return .entitlementMissing }
         // Emergency takes highest display priority to match mascot state.
         if store.didEmergencyUnlockToday  { return .emergencyUnlocked }
         if store.didVerifyToday           { return .verifiedToday }
@@ -61,7 +72,7 @@ struct TodayView: View {
 
     private var ringAccent: Color {
         switch appState {
-        case .blocked, .emergencyUnlocked: return SkyColor.coralStreak
+        case .blocked, .emergencyUnlocked, .entitlementMissing: return SkyColor.coralStreak
         case .verifiedToday:               return SkyColor.sunYellow
         default:                           return SkyColor.mossGreen
         }
@@ -84,6 +95,10 @@ struct TodayView: View {
                             .padding(.top, SkySpacing.s8)
                             .accessibilityLabel(mascotManager.state.accessibilityDescription)
                             .onTapGesture { squishNimbus() }
+                            // Long-press → debug menu (S-SET-09), DEBUG builds only.
+                            #if DEBUG
+                            .onLongPressGesture(minimumDuration: 2) { showingDebugMenu = true }
+                            #endif
 
                         // Status banner (S-TODAY-02 variants)
                         statusBanner
@@ -91,7 +106,7 @@ struct TodayView: View {
                             .transition(.opacity.animation(.easeInOut(duration: 0.3)))
                             .id(appState == .blocked || appState == .emergencyUnlocked ? "urgent" : "calm")
 
-                        // Usage progress ring
+                        // Usage progress ring — tap opens the daily-limit editor (S-SET-02).
                         ZStack {
                             SkyProgressRing(progress: ringProgress, accent: ringAccent)
                                 .frame(width: 96, height: 96)
@@ -100,8 +115,13 @@ struct TodayView: View {
                                 .skyText(.caption, color: SkyColor.inkSoft)
                                 .multilineTextAlignment(.center)
                         }
+                        .contentShape(Rectangle())
+                        .onTapGesture { showingLimitConfig = true }
                         .accessibilityValue(ringAccessibilityValue)
                         .accessibilityLabel("Daily usage ring")
+                        .accessibilityHint("Opens the daily limit editor")
+                        .accessibilityAddTraits(.isButton)
+                        .accessibilityIdentifier("today.usageRing")
 
                         // Streak chip — live count from StreakManager
                         SkyStreakChip(days: streakManager.progress.currentStreak)
@@ -138,6 +158,25 @@ struct TodayView: View {
             .environmentObject(mascotManager)
             .environmentObject(streakManager)
         }
+        // S-CFG-01 · App selection editor. On save the state flips to `.noLimit`.
+        .sheet(isPresented: $showingAppSelection) {
+            TodayEditAppsSheet { store = SharedDefaults() }
+                .environmentObject(storeKit)
+        }
+        // S-CFG-03 · Daily-limit editor. On save, re-arm monitoring so the new
+        // configuration takes effect and the state flips to `.unblocked`.
+        .sheet(isPresented: $showingLimitConfig) {
+            TodayEditLimitSheet {
+                store = SharedDefaults()
+                try? deviceActivity.startMonitoring()
+            }
+            .environmentObject(storeKit)
+        }
+        #if DEBUG
+        .sheet(isPresented: $showingDebugMenu) {
+            NavigationStack { DebugMenuView() }
+        }
+        #endif
         // Badge celebration overlay shown after verification fullScreenCover dismisses.
         .onChange(of: showingVerification) { _, isShowing in
             if !isShowing {
@@ -206,18 +245,22 @@ struct TodayView: View {
                     .accessibilityHint("Opens the emergency unlock flow. This resets your streak.")
                     .accessibilityIdentifier("today.emergencyButton")
 
-            case .noApps:
-                SkyPrimaryButton("Choose apps") {
-                    // S-CFG-01 is reached from Settings → Phase 15.
-                    // For Phase 11 this is an informational CTA with no navigation.
+            case .entitlementMissing:
+                SkyCoralButton("Reauthorize") {
+                    Task { await familyControls.requestAuthorization() }
                 }
-                .accessibilityIdentifier("today.chooseAppsButton")
+                .accessibilityHint("Re-grants Screen Time access so Sky can block your apps")
+                .accessibilityIdentifier("today.reauthorizeButton")
+
+            case .noApps:
+                SkyPrimaryButton("Choose apps") { showingAppSelection = true }
+                    .accessibilityHint("Opens the app picker")
+                    .accessibilityIdentifier("today.chooseAppsButton")
 
             case .noLimit:
-                SkyPrimaryButton("Set your limit") {
-                    // S-CFG-03 reached from Settings → Phase 15.
-                }
-                .accessibilityIdentifier("today.setLimitButton")
+                SkyPrimaryButton("Set your limit") { showingLimitConfig = true }
+                    .accessibilityHint("Opens the daily limit editor")
+                    .accessibilityIdentifier("today.setLimitButton")
 
             case .verifiedToday, .emergencyUnlocked, .unblocked, .paused:
                 EmptyView()
@@ -229,6 +272,7 @@ struct TodayView: View {
 
     private var bannerTitle: String {
         switch appState {
+        case .entitlementMissing: return "Screen Time access needed."
         case .paused:           return "Paused."
         case .unblocked:        return "Sky is watching."
         case .blocked:          return "Time's up."
@@ -242,6 +286,7 @@ struct TodayView: View {
     private var bannerBody: String {
         let limitHours = store.combinedLimitSeconds / 3600
         switch appState {
+        case .entitlementMissing: return "Sky needs Screen Time access again to block your apps."
         case .paused:           return pausedBannerBody
         case .unblocked:        return "Limit: \(limitHours) hour\(limitHours == 1 ? "" : "s") today."
         case .blocked:          return "Verify outside to unlock the apps for the rest of today."
@@ -262,6 +307,7 @@ struct TodayView: View {
 
     private var bannerStripeColor: Color {
         switch appState {
+        case .entitlementMissing: return SkyColor.coralStreak
         case .paused:           return SkyColor.cloudGrey
         case .unblocked:        return SkyColor.mossGreen
         case .blocked:          return SkyColor.coralStreak
@@ -275,6 +321,7 @@ struct TodayView: View {
 
     private var ringLabel: String {
         switch appState {
+        case .entitlementMissing: return "Off"
         case .paused:           return "Off"
         case .verifiedToday:    return "Done"
         case .blocked:          return "0 left"
@@ -306,6 +353,48 @@ struct TodayView: View {
     }
 }
 
+// MARK: - Config editor sheets (own their view model + a Cancel affordance)
+//
+// Mirror the EditAppsScreen / EditLimitsScreen wrappers in SettingsAppsAndLimitsView
+// so the Today CTAs reuse the exact same S-CFG-01 / S-CFG-03 editors. `onSaved` runs
+// before dismissal so the caller can refresh state / re-arm monitoring.
+
+private struct TodayEditAppsSheet: View {
+    var onSaved: () -> Void
+    @StateObject private var viewModel = AppSelectionViewModel()
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            AppSelectionView(viewModel: viewModel, onContinue: { onSaved(); dismiss() })
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Cancel") { dismiss() }
+                    }
+                }
+        }
+    }
+}
+
+private struct TodayEditLimitSheet: View {
+    var onSaved: () -> Void
+    @StateObject private var viewModel = LimitConfigurationViewModel()
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            LimitConfigurationView(viewModel: viewModel, onSave: { onSaved(); dismiss() })
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Cancel") { dismiss() }
+                    }
+                }
+        }
+    }
+}
+
 // MARK: - Previews
 
 #Preview("S-TODAY-01 — Unblocked") {
@@ -313,6 +402,8 @@ struct TodayView: View {
         .environmentObject(MascotStateManager())
         .environmentObject(DeviceActivityService())
         .environmentObject(StreakManager())
+        .environmentObject(StoreKitService())
+        .environmentObject(FamilyControlsService())
 }
 
 #Preview("S-TODAY-01 — Blocked") {
@@ -322,6 +413,8 @@ struct TodayView: View {
         .environmentObject(MascotStateManager())
         .environmentObject(DeviceActivityService())
         .environmentObject(StreakManager())
+        .environmentObject(StoreKitService())
+        .environmentObject(FamilyControlsService())
 }
 
 #Preview("S-TODAY-01 — Verified") {
@@ -331,6 +424,8 @@ struct TodayView: View {
         .environmentObject(MascotStateManager())
         .environmentObject(DeviceActivityService())
         .environmentObject(StreakManager())
+        .environmentObject(StoreKitService())
+        .environmentObject(FamilyControlsService())
 }
 
 #Preview("S-TODAY-01 — Dark mode") {
@@ -338,5 +433,7 @@ struct TodayView: View {
         .environmentObject(MascotStateManager())
         .environmentObject(DeviceActivityService())
         .environmentObject(StreakManager())
+        .environmentObject(StoreKitService())
+        .environmentObject(FamilyControlsService())
         .preferredColorScheme(.dark)
 }

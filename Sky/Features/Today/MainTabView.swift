@@ -87,4 +87,5 @@ struct MainTabView: View {
         .environmentObject(CloudKitSyncService())
         .environmentObject(StoreKitService())
         .environmentObject(LocalNotificationScheduler())
+        .environmentObject(FamilyControlsService())
 }

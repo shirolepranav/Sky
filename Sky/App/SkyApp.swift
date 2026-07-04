@@ -208,6 +208,8 @@ struct SkyApp: App {
                 .environmentObject(cloudKitSync)
                 .environmentObject(storeKit)
                 .environmentObject(scheduler)
+                // TodayView reads this to surface the entitlementMissing state (S-TODAY-01).
+                .environmentObject(coordinator.familyControls)
         }
     }
 }
