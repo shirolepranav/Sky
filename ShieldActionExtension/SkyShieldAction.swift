@@ -4,8 +4,8 @@
 //
 // Phase 6: records which shield button the user tapped so the main app can route
 // to the correct screen the next time it becomes active.
-//   Primary button   → "verify"    → VerificationPlaceholderView
-//   Auxiliary button → "emergency" → EmergencyUnlockPlaceholderView
+//   Primary button   → "verify"    → VerificationCoordinatorView
+//   Auxiliary button → "emergency" → EmergencyUnlockCoordinatorView (Phase 13)
 //
 // An app extension cannot call UIApplication.shared.open() (UIApplication.shared
 // is unavailable in extensions), and ShieldActionResponse has no "open host app"

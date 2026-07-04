@@ -72,6 +72,33 @@ final class VerificationDecisionEngineTests: XCTestCase {
         XCTAssertEqual(result, .failure(.noSkyVisible))
     }
 
+    // MARK: - Night Mode (Phase 15)
+
+    func testNightModeBypassesDaylight() {
+        // Same failing daylight signal passes once Night Mode waives that one check.
+        let sensor = makeSensor(sunriseSunsetCheckPassed: false)
+        XCTAssertEqual(
+            engine.evaluate(sensor: sensor, frame: makeFrame(), nightModeEnabled: false),
+            .failure(.outsideDaylightWindow)
+        )
+        XCTAssertEqual(
+            engine.evaluate(sensor: sensor, frame: makeFrame(), nightModeEnabled: true),
+            .success(())
+        )
+    }
+
+    func testNightModeDoesNotWaiveOtherChecks() {
+        // Night Mode only affects the daylight check — movement still required.
+        let sensor = makeSensor(
+            maxHorizontalSpeed: 0.1, altitudeChangeMeters: 0.3,
+            sunriseSunsetCheckPassed: false
+        )
+        XCTAssertEqual(
+            engine.evaluate(sensor: sensor, frame: makeFrame(), nightModeEnabled: true),
+            .failure(.notEnoughMovement)
+        )
+    }
+
     // MARK: - Priority ordering
 
     func testGPSSpoofingBeatsAllOtherFailures() {

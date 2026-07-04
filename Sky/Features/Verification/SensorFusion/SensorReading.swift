@@ -24,6 +24,31 @@ struct SensorReading: Equatable, Hashable {
     let gpsSpoofed: Bool
     /// True if timeOfDay falls between sunrise and sunset at the recorded location.
     let sunriseSunsetCheckPassed: Bool
+    /// Best GPS location rounded to 0.01° as "lat_lng", used for the Wanderer badge.
+    /// Nil when GPS was unavailable or accuracy was too poor (> 100 m).
+    let bestLocationTag: String?
+
+    /// Designated initialiser with a default for `bestLocationTag` so existing
+    /// call sites that omit it compile without change.
+    init(
+        gpsAccuracyAtBest: CLLocationAccuracy,
+        maxHorizontalSpeed: Double,
+        altitudeChangeMeters: Double,
+        medianExposureBias: Float,
+        timeOfDay: Date,
+        gpsSpoofed: Bool,
+        sunriseSunsetCheckPassed: Bool,
+        bestLocationTag: String? = nil
+    ) {
+        self.gpsAccuracyAtBest        = gpsAccuracyAtBest
+        self.maxHorizontalSpeed       = maxHorizontalSpeed
+        self.altitudeChangeMeters     = altitudeChangeMeters
+        self.medianExposureBias       = medianExposureBias
+        self.timeOfDay                = timeOfDay
+        self.gpsSpoofed               = gpsSpoofed
+        self.sunriseSunsetCheckPassed = sunriseSunsetCheckPassed
+        self.bestLocationTag          = bestLocationTag
+    }
 
     /// Zero-signal sentinel used when sensors are unavailable (simulator, mock tests).
     static let unavailable = SensorReading(

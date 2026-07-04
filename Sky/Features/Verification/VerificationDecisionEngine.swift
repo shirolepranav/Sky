@@ -11,14 +11,21 @@ import Foundation
 
 struct VerificationDecisionEngine {
 
-    func evaluate(sensor: SensorReading, frame: FrameAnalysisResult) -> Result<Void, FailureReason> {
+    /// - Parameter nightModeEnabled: when true, the daylight (sunrise/sunset)
+    ///   check is bypassed (S-SET-05). Every other signal still applies.
+    func evaluate(
+        sensor: SensorReading,
+        frame: FrameAnalysisResult,
+        nightModeEnabled: Bool = false
+    ) -> Result<Void, FailureReason> {
         // 1. GPS spoofing — hard block regardless of all other signals.
         if sensor.gpsSpoofed {
             return .failure(.gpsSpoofingDetected)
         }
 
         // 2. Outside daylight window — sunrise/sunset check from SolarCalculator.
-        if !sensor.sunriseSunsetCheckPassed {
+        //    Night Mode (opt-in) waives this one check only.
+        if !sensor.sunriseSunsetCheckPassed && !nightModeEnabled {
             return .failure(.outsideDaylightWindow)
         }
 

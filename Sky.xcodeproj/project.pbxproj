@@ -68,6 +68,13 @@
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		810C47B12FF8C8020060EB09 /* PBXFileSystemSynchronizedBuildFileExceptionSet */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Resources/Sky.storekit,
+			);
+			target = AB00000000000000000C0402 /* SkyTests */;
+		};
 		AB00000000000000000D0000 /* PBXFileSystemSynchronizedBuildFileExceptionSet */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
@@ -99,7 +106,7 @@
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
-		AB00000000000000000A0001 /* Sky */ = {isa = PBXFileSystemSynchronizedRootGroup; exceptions = (AB00000000000000000D0000 /* PBXFileSystemSynchronizedBuildFileExceptionSet */, ); explicitFileTypes = {}; explicitFolders = (); path = Sky; sourceTree = "<group>"; };
+		AB00000000000000000A0001 /* Sky */ = {isa = PBXFileSystemSynchronizedRootGroup; exceptions = (AB00000000000000000D0000 /* PBXFileSystemSynchronizedBuildFileExceptionSet */, 810C47B12FF8C8020060EB09 /* PBXFileSystemSynchronizedBuildFileExceptionSet */, ); explicitFileTypes = {}; explicitFolders = (); path = Sky; sourceTree = "<group>"; };
 		AB00000000000000000C0101 /* DeviceActivityMonitorExtension */ = {isa = PBXFileSystemSynchronizedRootGroup; exceptions = (AB00000000000000000D0010 /* PBXFileSystemSynchronizedBuildFileExceptionSet */, ); explicitFileTypes = {}; explicitFolders = (); path = DeviceActivityMonitorExtension; sourceTree = "<group>"; };
 		AB00000000000000000C0201 /* ShieldConfigurationExtension */ = {isa = PBXFileSystemSynchronizedRootGroup; exceptions = (AB00000000000000000D0020 /* PBXFileSystemSynchronizedBuildFileExceptionSet */, ); explicitFileTypes = {}; explicitFolders = (); path = ShieldConfigurationExtension; sourceTree = "<group>"; };
 		AB00000000000000000C0301 /* ShieldActionExtension */ = {isa = PBXFileSystemSynchronizedRootGroup; exceptions = (AB00000000000000000D0030 /* PBXFileSystemSynchronizedBuildFileExceptionSet */, ); explicitFileTypes = {}; explicitFolders = (); path = ShieldActionExtension; sourceTree = "<group>"; };

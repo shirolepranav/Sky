@@ -29,4 +29,10 @@ enum AppBranding {
     static let annualProductID = "com.sky.pro.annual"
     static let lifetimeProductID = "com.sky.pro.lifetime"
     static let founderLifetimeProductID = "com.sky.pro.founder"
+
+    // MARK: About / legal (S-SET-08)
+    static let privacyPolicyURL = URL(string: "https://sky.app/privacy")!
+    static let termsOfServiceURL = URL(string: "https://sky.app/terms")!
+    static let supportEmail = "support@sky.app"
+    static let manageSubscriptionsURL = URL(string: "https://apps.apple.com/account/subscriptions")!
 }

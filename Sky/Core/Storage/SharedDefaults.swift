@@ -40,6 +40,18 @@ struct SharedDefaults {
         static let todayResetToken = "today_reset_token"
         static let verificationCompletedAt = "verification_completed_at"
         static let pendingDeepLink = "pending_deep_link"
+        // Phase 12 — midnight-reset hand-off from DeviceActivityMonitor extension
+        static let pendingMidnightReset = "streak_pending_midnight_reset"
+        static let yesterdayDidVerify = "streak_yesterday_verified"
+        static let yesterdayDidEmergency = "streak_yesterday_emergency"
+        // Phase 15 — notification preferences, Night Mode, Pause, one-time primer
+        static let notifMorningEnabled = "notif_morning_enabled"
+        static let notifWarningEnabled = "notif_warning_enabled"
+        static let notifStreakEnabled = "notif_streak_enabled"
+        static let nightModeEnabled = "night_mode_enabled"
+        static let pauseStartedAt = "pause_started_at"
+        static let lastPauseDate = "last_pause_date"
+        static let notificationPrimerShown = "notif_primer_shown"
     }
 
     // MARK: Configuration (written by main app, read by extensions)
@@ -100,6 +112,27 @@ struct SharedDefaults {
         nonmutating set { defaults.set(newValue, forKey: Key.verificationCompletedAt) }
     }
 
+    // MARK: Phase 12 — midnight-reset hand-off (written by DeviceActivityMonitor, consumed by StreakManager)
+
+    /// Set by the extension at midnight before clearing today's flags.
+    /// StreakManager reads and clears this on the next foreground transition.
+    var pendingMidnightReset: Bool {
+        get { defaults.bool(forKey: Key.pendingMidnightReset) }
+        nonmutating set { defaults.set(newValue, forKey: Key.pendingMidnightReset) }
+    }
+
+    /// Yesterday's `didVerifyToday` value captured just before the midnight clear.
+    var yesterdayDidVerify: Bool {
+        get { defaults.bool(forKey: Key.yesterdayDidVerify) }
+        nonmutating set { defaults.set(newValue, forKey: Key.yesterdayDidVerify) }
+    }
+
+    /// Yesterday's `didEmergencyUnlockToday` value captured just before the midnight clear.
+    var yesterdayDidEmergency: Bool {
+        get { defaults.bool(forKey: Key.yesterdayDidEmergency) }
+        nonmutating set { defaults.set(newValue, forKey: Key.yesterdayDidEmergency) }
+    }
+
     // MARK: Shield action hand-off (written by ShieldActionExtension, consumed by main app)
 
     /// The deep-link destination a shield button requested ("verify" or
@@ -110,6 +143,87 @@ struct SharedDefaults {
     var pendingDeepLink: String? {
         get { defaults.string(forKey: Key.pendingDeepLink) }
         nonmutating set { defaults.set(newValue, forKey: Key.pendingDeepLink) }
+    }
+
+    // MARK: Phase 15 — Notification preferences (opt-out; default ON)
+
+    /// Morning "hello" at 8:30 AM. Scheduled app-side by LocalNotificationScheduler.
+    var notifMorningEnabled: Bool {
+        get { defaults.object(forKey: Key.notifMorningEnabled) as? Bool ?? true }
+        nonmutating set { defaults.set(newValue, forKey: Key.notifMorningEnabled) }
+    }
+
+    /// 30-minutes-before-block warning. Posted by the DeviceActivityMonitor
+    /// extension when the paired warning threshold fires (read cross-process).
+    var notifWarningEnabled: Bool {
+        get { defaults.object(forKey: Key.notifWarningEnabled) as? Bool ?? true }
+        nonmutating set { defaults.set(newValue, forKey: Key.notifWarningEnabled) }
+    }
+
+    /// 10 PM streak-at-risk reminder. Pro-gated at the UI/scheduler level.
+    var notifStreakEnabled: Bool {
+        get { defaults.object(forKey: Key.notifStreakEnabled) as? Bool ?? true }
+        nonmutating set { defaults.set(newValue, forKey: Key.notifStreakEnabled) }
+    }
+
+    // MARK: Phase 15 — Night Mode (opt-in; default OFF)
+
+    /// When true, the daylight (sunrise/sunset) verification check is bypassed
+    /// (all other checks still apply). Read by VerificationDecisionEngine.
+    var nightModeEnabled: Bool {
+        get { defaults.bool(forKey: Key.nightModeEnabled) }
+        nonmutating set { defaults.set(newValue, forKey: Key.nightModeEnabled) }
+    }
+
+    // MARK: Phase 15 — Pause Sky (Pro, max once/week)
+
+    /// Timestamp a 24-hour pause began, or nil when never paused. The pause is
+    /// considered active for 24h after this instant — see `isPaused`.
+    var pauseStartedAt: Date? {
+        get { defaults.object(forKey: Key.pauseStartedAt) as? Date }
+        nonmutating set { defaults.set(newValue, forKey: Key.pauseStartedAt) }
+    }
+
+    /// The most recent pause start, retained past expiry to enforce the
+    /// once-per-week limit even after the pause window closes.
+    var lastPauseDate: Date? {
+        get { defaults.object(forKey: Key.lastPauseDate) as? Date }
+        nonmutating set { defaults.set(newValue, forKey: Key.lastPauseDate) }
+    }
+
+    /// True while a 24-hour pause is still in effect. Extensions read this to
+    /// skip applying shields; the main app shows the "Paused until…" banner.
+    var isPaused: Bool {
+        guard let start = pauseStartedAt else { return false }
+        return Date().timeIntervalSince(start) < 24 * 60 * 60
+    }
+
+    /// The instant the current pause expires, or nil when not paused.
+    var pauseEndsAt: Date? {
+        guard isPaused, let start = pauseStartedAt else { return nil }
+        return start.addingTimeInterval(24 * 60 * 60)
+    }
+
+    /// True when a new 24-hour pause is allowed — never paused, or ≥7 days since
+    /// the last pause began (S-SET-03 once-per-week limit).
+    var canPauseNow: Bool {
+        guard let last = lastPauseDate else { return true }
+        return Date().timeIntervalSince(last) >= 7 * 24 * 60 * 60
+    }
+
+    /// When the next pause becomes available, or nil when one is available now.
+    var nextPauseAvailableDate: Date? {
+        guard let last = lastPauseDate, !canPauseNow else { return nil }
+        return last.addingTimeInterval(7 * 24 * 60 * 60)
+    }
+
+    // MARK: Phase 15 — one-time notification permission primer (S-PERM-03)
+
+    /// True once the notification-rationale primer has been shown, so it appears
+    /// only once after first setup.
+    var notificationPrimerShown: Bool {
+        get { defaults.bool(forKey: Key.notificationPrimerShown) }
+        nonmutating set { defaults.set(newValue, forKey: Key.notificationPrimerShown) }
     }
 
     // MARK: Typed selection accessor

@@ -3,8 +3,11 @@
 //
 // Hosts the combined/per-app mode toggle with embedded pickers:
 //   S-CFG-04 · CombinedLimitContent — three hour-chips, tap to select
-//   S-CFG-05 · PerAppLimitsContent  — per-token steppers (Pro; TODO Phase 14 gate)
+//   S-CFG-05 · PerAppLimitsContent  — per-token steppers (Pro)
 //   S-CFG-06 · SkyToast             — "Saved. Sky's watching." confirmation
+//
+// Phase 14: "Per app" segment is gated for free users via a custom Picker binding
+// that calls viewModel.setLimitMode(_:isPro:). S-PAY-05 appears on gate trigger.
 //
 // Entry points: SetupFlowView (first-run) and S-SET-02 (Settings, Phase 15).
 // Exit: onSave() is called after the toast finishes dismissing.
@@ -17,7 +20,10 @@ struct LimitConfigurationView: View {
     @ObservedObject var viewModel: LimitConfigurationViewModel
     let onSave: () -> Void
 
+    @EnvironmentObject private var storeKit: StoreKitService
+
     @State private var showToast = false
+    @State private var showPaywall = false
 
     var body: some View {
         ScrollView {
@@ -29,9 +35,12 @@ struct LimitConfigurationView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .accessibilityIdentifier("limitConfig.title")
 
-                // S-CFG-03 · Mode toggle
-                // TODO(Phase 14): gate per-app segment for free users → S-PAY-05
-                Picker("Limit mode", selection: $viewModel.limitMode) {
+                // S-CFG-03 · Mode toggle. Custom binding routes "Per app" taps through
+                // the Pro gate for free users (S-PAY-05) via viewModel.setLimitMode.
+                Picker("Limit mode", selection: Binding(
+                    get: { viewModel.limitMode },
+                    set: { viewModel.setLimitMode($0, isPro: storeKit.isPro) }
+                )) {
                     Text("Combined").tag(LimitConfigurationViewModel.LimitMode.combined)
                     Text("Per app").tag(LimitConfigurationViewModel.LimitMode.perApp)
                 }
@@ -70,6 +79,22 @@ struct LimitConfigurationView: View {
         .background(SkyColor.surface.ignoresSafeArea())
         // S-CFG-06 · Confirmation toast; onSave fires after dismissal
         .skyToast(isPresented: $showToast, message: "Saved. Sky's watching.", onComplete: onSave)
+        // S-PAY-05 · Per-app mode Pro gate
+        .sheet(isPresented: $viewModel.showsPerAppProGate) {
+            InContextProGateView(
+                featureTitle: "Per-app limits is a Pro feature.",
+                onSeePro: {
+                    viewModel.showsPerAppProGate = false
+                    showPaywall = true
+                },
+                onDismiss: { viewModel.showsPerAppProGate = false }
+            )
+            .presentationDetents([.medium])
+        }
+        .fullScreenCover(isPresented: $showPaywall) {
+            PaywallView { showPaywall = false }
+                .environmentObject(storeKit)
+        }
         .accessibilityIdentifier("limitConfig.root")
     }
 }
@@ -160,8 +185,11 @@ private struct PerAppLimitsContent: View {
                 .skyText(.label, color: SkyColor.inkSoft)
 
             if viewModel.appTokens.isEmpty {
-                Text("No apps selected.")
+                Text(viewModel.hasCategoriesOnly
+                     ? "Per-app limits work on individual apps. You've picked a category — use Combined, or go back and choose specific apps."
+                     : "No apps selected yet.")
                     .skyText(.body, color: SkyColor.inkSoft)
+                    .fixedSize(horizontal: false, vertical: true)
             } else {
                 LazyVStack(spacing: SkySpacing.s3) {
                     ForEach(viewModel.appTokens, id: \.self) { token in
@@ -223,10 +251,12 @@ private struct PerAppRow: View {
         viewModel: LimitConfigurationViewModel(),
         onSave: {}
     )
+    .environmentObject(StoreKitService())
 }
 
 #Preview("S-CFG-03 Per-app (empty selection)") {
     let vm = LimitConfigurationViewModel()
     vm.limitMode = .perApp
     return LimitConfigurationView(viewModel: vm, onSave: {})
+        .environmentObject(StoreKitService())
 }

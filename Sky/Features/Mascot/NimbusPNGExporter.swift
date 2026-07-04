@@ -71,8 +71,8 @@ struct NimbusPNGExporter: View {
         lines.forEach { print($0) }
     }
 }
+#endif
 
 #Preview("NimbusPNGExporter — run once in Simulator to generate shield assets") {
     NimbusPNGExporter()
 }
-#endif

@@ -5,6 +5,9 @@
 // Reads and writes `limitMode`, `combinedLimitSeconds`, and `perAppLimitsData`
 // from SharedDefaults. The injectable `store` parameter keeps this testable with
 // an isolated UserDefaults suite — the same pattern used in AppSelectionViewModel.
+//
+// Phase 14: `setLimitMode(_:isPro:)` enforces the per-app limits Pro gate.
+// `showsPerAppProGate` signals the view to present S-PAY-05.
 
 import SwiftUI
 import FamilyControls
@@ -25,6 +28,9 @@ final class LimitConfigurationViewModel: ObservableObject {
     /// Per-app budgets keyed by token. Access via `minutesBinding(for:)` which
     /// applies 60 m defaults and clamps to the 15–240 m range.
     @Published var perAppMinutes: [ApplicationToken: Int]
+
+    /// Set when a free user tries to switch to per-app mode. View presents S-PAY-05.
+    @Published var showsPerAppProGate: Bool = false
 
     // MARK: Storage
 
@@ -47,6 +53,26 @@ final class LimitConfigurationViewModel: ObservableObject {
     var appTokens: [ApplicationToken] {
         Array(store.selection?.applicationTokens ?? [])
             .sorted { $0.hashValue < $1.hashValue }
+    }
+
+    /// True when the user picked one or more *categories* but no individual apps.
+    /// Per-app limits can't break a whole category into rows, so the per-app view
+    /// shows a guidance message instead of an empty "No apps" state.
+    var hasCategoriesOnly: Bool {
+        appTokens.isEmpty && !(store.selection?.categoryTokens.isEmpty ?? true)
+    }
+
+    // MARK: Pro-gated mode switching (Phase 14)
+
+    /// Change the limit mode, respecting the per-app Pro gate.
+    /// Views must call this instead of assigning `limitMode` directly so that
+    /// the gate is applied even from non-Picker entry points.
+    func setLimitMode(_ mode: LimitMode, isPro: Bool) {
+        if mode == .perApp && !isPro {
+            showsPerAppProGate = true
+            return  // do not change limitMode
+        }
+        limitMode = mode
     }
 
     // MARK: Persistence

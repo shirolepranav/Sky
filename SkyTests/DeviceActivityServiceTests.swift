@@ -54,8 +54,8 @@ final class DeviceActivityServiceTests: XCTestCase {
 
     // MARK: Events — combined mode
 
-    /// Combined mode with a known limit must produce exactly one event keyed
-    /// `.dailyLimitReached` with the matching threshold.
+    /// Combined mode with a known limit must produce a `.dailyLimitReached` event
+    /// at the limit plus a paired `.dailyWarning` event 30 minutes earlier.
     func testEventThresholdMatchesCombinedLimit() {
         let events = DeviceActivityService.makeEvents(
             limitMode: "combined",
@@ -64,10 +64,33 @@ final class DeviceActivityServiceTests: XCTestCase {
             perAppLimitsData: nil
         )
 
+        XCTAssertEqual(events.count, 2, "limit event + 30-min warning event")
+        XCTAssertEqual(events[.dailyLimitReached]?.threshold.second, 3600)
+        XCTAssertEqual(events[.dailyWarning]?.threshold.second, 1800, "warning fires 30 min before")
+    }
+
+    /// A limit ≤ 30 minutes leaves no room for a distinct earlier warning, so only
+    /// the limit event is emitted.
+    func testShortLimitEmitsNoWarning() {
+        let events = DeviceActivityService.makeEvents(
+            limitMode: "combined",
+            combinedLimitSeconds: 20 * 60,
+            selection: FamilyActivitySelection(),
+            perAppLimitsData: nil
+        )
+
         XCTAssertEqual(events.count, 1)
-        let event = events[.dailyLimitReached]
-        XCTAssertNotNil(event, "combined mode must produce a dailyLimitReached event")
-        XCTAssertEqual(event?.threshold.second, 3600)
+        XCTAssertNotNil(events[.dailyLimitReached])
+        XCTAssertNil(events[.dailyWarning])
+    }
+
+    /// The warning-threshold helper subtracts 30 minutes, or returns nil when the
+    /// limit is 30 minutes or less.
+    func testWarningThresholdSeconds() {
+        XCTAssertEqual(DeviceActivityService.warningThresholdSeconds(for: 7200), 5400)
+        XCTAssertEqual(DeviceActivityService.warningThresholdSeconds(for: 1801), 1)
+        XCTAssertNil(DeviceActivityService.warningThresholdSeconds(for: 1800))
+        XCTAssertNil(DeviceActivityService.warningThresholdSeconds(for: 600))
     }
 
     // MARK: Events — per-app mode

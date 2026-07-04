@@ -1,0 +1,111 @@
+{
+  "identifier" : "A1B2C3D4-0000-0000-0000-000000000000",
+  "nonRenewingSubscriptions" : [
+
+  ],
+  "products" : [
+    {
+      "displayPrice" : "79.00",
+      "familyShareable" : false,
+      "internalID" : "A1B2C3D4-0000-0000-0000-000000000003",
+      "introductoryOffer" : null,
+      "localizations" : [
+        {
+          "description" : "Sky Pro lifetime access — pay once, use forever.",
+          "displayName" : "Sky Pro · Lifetime",
+          "locale" : "en_US"
+        }
+      ],
+      "productID" : "com.sky.pro.lifetime",
+      "referenceName" : "Sky Pro Lifetime",
+      "type" : "NonConsumable"
+    },
+    {
+      "displayPrice" : "39.00",
+      "familyShareable" : false,
+      "internalID" : "A1B2C3D4-0000-0000-0000-000000000004",
+      "introductoryOffer" : null,
+      "localizations" : [
+        {
+          "description" : "Sky Pro founder lifetime access — first 500 only.",
+          "displayName" : "Founder's Lifetime",
+          "locale" : "en_US"
+        }
+      ],
+      "productID" : "com.sky.pro.founder",
+      "referenceName" : "Founder's Lifetime",
+      "type" : "NonConsumable"
+    }
+  ],
+  "settings" : {
+    "_continueTransactions" : false,
+    "_customerEmail" : null,
+    "_failTransactionsEnabled" : false,
+    "_locale" : "en_US",
+    "_purchaseRatio" : 100,
+    "_signatureExpiration" : null,
+    "_storefront" : "USA",
+    "_storeKitErrors" : [
+
+    ]
+  },
+  "subscriptionGroups" : [
+    {
+      "id" : "A1B2C3D4-0000-0000-0000-000000000010",
+      "localizations" : [
+
+      ],
+      "name" : "Sky Pro",
+      "subscriptions" : [
+        {
+          "adHocOfferCodesEnabled" : false,
+          "displayPrice" : "4.99",
+          "familyShareable" : false,
+          "internalID" : "A1B2C3D4-0000-0000-0000-000000000001",
+          "introductoryOffer" : null,
+          "localizations" : [
+            {
+              "description" : "Sky Pro monthly subscription.",
+              "displayName" : "Sky Pro · Monthly",
+              "locale" : "en_US"
+            }
+          ],
+          "productID" : "com.sky.pro.monthly",
+          "recurringSubscriptionPeriod" : "P1M",
+          "referenceName" : "Sky Pro Monthly",
+          "subscriptionGroupID" : "A1B2C3D4-0000-0000-0000-000000000010",
+          "type" : "RecurringSubscription"
+        },
+        {
+          "adHocOfferCodesEnabled" : false,
+          "displayPrice" : "29.99",
+          "familyShareable" : false,
+          "internalID" : "A1B2C3D4-0000-0000-0000-000000000002",
+          "introductoryOffer" : {
+            "displayPrice" : "0.00",
+            "offerIdentifier" : "free_trial_7d",
+            "paymentMode" : "FreeTrial",
+            "period" : "P7D",
+            "periodCount" : 1
+          },
+          "localizations" : [
+            {
+              "description" : "Sky Pro annual subscription with 7-day free trial.",
+              "displayName" : "Sky Pro · Annual",
+              "locale" : "en_US"
+            }
+          ],
+          "productID" : "com.sky.pro.annual",
+          "recurringSubscriptionPeriod" : "P1Y",
+          "referenceName" : "Sky Pro Annual",
+          "subscriptionGroupID" : "A1B2C3D4-0000-0000-0000-000000000010",
+          "type" : "RecurringSubscription"
+        }
+      ]
+    }
+  ],
+  "version" : {
+    "major" : 2,
+    "minor" : 0
+  }
+}

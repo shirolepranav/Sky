@@ -17,6 +17,25 @@
 // is surfaced as a fullScreenCover over whichever route is active (S-SHIELD-02,
 // S-SHIELD-03). AppCoordinator.Route is unchanged — deep-link destinations are
 // transient overlays, not top-level routing states.
+//
+// Phase 11: MascotStateManager is created here and passed as an environment
+// object to MainTabView (which replaced MainPlaceholderView). It is also
+// refreshed on every foreground so overnight midnight resets and external flag
+// changes are picked up without requiring a cold launch.
+//
+// Phase 12: StreakManager and CloudKitSyncService are created here and injected
+// as environment objects alongside MascotStateManager. StreakManager.refreshOnForeground
+// is called on every active-phase transition so midnight-reset hand-offs written
+// by DeviceActivityMonitor are consumed promptly.
+//
+// Phase 13: sky://emergency deep link now routes to EmergencyUnlockCoordinatorView
+// (real 3-screen flow) instead of the Phase 6 placeholder. "Try outside again"
+// in S-EMG-01 dismisses the emergency cover and re-presents the verify cover
+// after a brief delay so SwiftUI can sequence the two fullScreenCovers.
+//
+// Phase 14: StoreKitService created here and injected as an environment object.
+// listenForTransactions() starts a long-running background task; products and
+// entitlements are refreshed on every app foreground.
 
 import SwiftUI
 
@@ -24,11 +43,19 @@ import SwiftUI
 struct SkyApp: App {
     @StateObject private var coordinator: AppCoordinator
     @StateObject private var deviceActivity = DeviceActivityService()
+    @StateObject private var mascotManager = MascotStateManager()
+    @StateObject private var streakManager = StreakManager()
+    @StateObject private var cloudKitSync = CloudKitSyncService()
+    @StateObject private var storeKit = StoreKitService()
+    @StateObject private var scheduler = LocalNotificationScheduler()
     @Environment(\.scenePhase) private var scenePhase
     @State private var isReady = false
     @State private var deepLinkDestination: SkyDeepLink? = nil
+    @State private var showNotificationPrimer = false
 
     init() {
+        // Wire CloudKitSyncService into StreakManager after construction.
+        // (Can't reference _streakManager / _cloudKitSync yet — use a post-init hook.)
         let args = ProcessInfo.processInfo.arguments
         let onboarding = OnboardingViewModel()
         // UI tests pass -resetOnboarding to force a fresh onboarding run.
@@ -73,15 +100,33 @@ struct SkyApp: App {
                 if phase == .active {
                     coordinator.familyControls.refreshStatus()
                     coordinator.recomputeRoute()
+                    mascotManager.refreshState()
+                    // Consume the midnight-reset hand-off from DeviceActivityMonitor
+                    // and re-evaluate streak for the previous day (Phase 12).
+                    streakManager.refreshOnForeground()
                     // Re-arm monitoring on every foreground when configured, so
                     // limit edits and relaunches always use the latest values.
                     if coordinator.route == .main {
                         try? deviceActivity.startMonitoring()
+                        // Re-arm local notifications and show the one-time primer
+                        // once setup is complete (Phase 15, S-PERM-03 / S-SET-04).
+                        rescheduleNotifications()
+                        maybeShowNotificationPrimer()
                     }
                     // Consume a shield-button tap recorded by ShieldActionExtension
                     // (it can't open the app directly) — S-SHIELD-02 / S-SHIELD-03.
                     consumePendingDeepLink()
                 }
+            }
+            .task {
+                // Link streak manager to CloudKit on first appear and kick off
+                // the initial fetch (non-blocking — UI uses local cache).
+                streakManager.setCloudKit(cloudKitSync)
+                cloudKitSync.fetchOnLaunch()
+                // StoreKit: start listener, load products, refresh entitlement.
+                storeKit.listenForTransactions()
+                try? await storeKit.loadProducts()
+                await storeKit.refreshEntitlement()
             }
             .onOpenURL { url in
                 deepLinkDestination = SkyDeepLink(url: url)
@@ -90,11 +135,47 @@ struct SkyApp: App {
                 switch link {
                 case .verify:
                     VerificationCoordinatorView { deepLinkDestination = nil }
+                        .environmentObject(mascotManager)
+                        .environmentObject(streakManager)
+                        .environmentObject(storeKit)
                 case .emergency:
-                    EmergencyUnlockPlaceholderView { deepLinkDestination = nil }
+                    EmergencyUnlockCoordinatorView(
+                        onDismiss: { deepLinkDestination = nil },
+                        onTryOutside: {
+                            deepLinkDestination = nil
+                            // Brief delay lets the emergency cover finish dismissing
+                            // before SwiftUI can present the verification cover.
+                            Task { @MainActor in
+                                try? await Task.sleep(for: .milliseconds(350))
+                                deepLinkDestination = .verify
+                            }
+                        }
+                    )
+                    .environmentObject(streakManager)
+                    .environmentObject(mascotManager)
                 }
             }
+            .fullScreenCover(isPresented: $showNotificationPrimer) {
+                NotificationPermissionView { showNotificationPrimer = false }
+                    .environmentObject(scheduler)
+                    .environmentObject(storeKit)
+                    .environmentObject(streakManager)
+            }
         }
+    }
+
+    /// Re-arms the calendar-triggered local notifications from current prefs.
+    private func rescheduleNotifications() {
+        let store = SharedDefaults()
+        let atRisk = streakManager.progress.currentStreak > 0 && !store.didVerifyToday
+        Task { await scheduler.rescheduleAll(store: store, isPro: storeKit.isPro, streakAtRisk: atRisk) }
+    }
+
+    /// Presents S-PERM-03 once, after the user has completed app selection.
+    private func maybeShowNotificationPrimer() {
+        let store = SharedDefaults()
+        guard !store.notificationPrimerShown, store.hasSelection else { return }
+        showNotificationPrimer = true
     }
 
     /// Reads and clears the pending shield-button destination from the App Group,
@@ -118,9 +199,15 @@ struct SkyApp: App {
                 familyControls: coordinator.familyControls,
                 onComplete: { coordinator.recomputeRoute() }
             )
+            .environmentObject(storeKit)
         case .main:
-            MainPlaceholderView()
+            MainTabView()
                 .environmentObject(deviceActivity)
+                .environmentObject(mascotManager)
+                .environmentObject(streakManager)
+                .environmentObject(cloudKitSync)
+                .environmentObject(storeKit)
+                .environmentObject(scheduler)
         }
     }
 }

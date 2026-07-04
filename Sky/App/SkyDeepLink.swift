@@ -7,8 +7,8 @@
 import Foundation
 
 enum SkyDeepLink: String, Identifiable {
-    case verify    // sky://verify    → VerificationPlaceholderView (Phase 7: real video capture)
-    case emergency // sky://emergency → EmergencyUnlockPlaceholderView (Phase 13: real unlock flow)
+    case verify    // sky://verify    → VerificationCoordinatorView
+    case emergency // sky://emergency → EmergencyUnlockCoordinatorView (Phase 13)
 
     var id: String { rawValue }
 

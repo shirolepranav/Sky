@@ -138,8 +138,21 @@ final class SensorRecorder: NSObject {
             medianExposureBias: medianExposure(),
             timeOfDay: startTime,
             gpsSpoofed: anyGPSSpoofDetected,
-            sunriseSunsetCheckPassed: sunriseSunsetCheckPassed
+            sunriseSunsetCheckPassed: sunriseSunsetCheckPassed,
+            bestLocationTag: bestRoundedLocationTag()
         )
+    }
+
+    /// Returns the best (most accurate) GPS sample rounded to 0.01° as "lat_lng",
+    /// or nil if no sample had accuracy ≤ 100 m (too imprecise for Wanderer badge).
+    private func bestRoundedLocationTag() -> String? {
+        let best = locationSamples
+            .filter { $0.horizontalAccuracy >= 0 && $0.horizontalAccuracy <= 100 }
+            .min(by: { $0.horizontalAccuracy < $1.horizontalAccuracy })
+        guard let loc = best else { return nil }
+        let lat = (loc.coordinate.latitude  * 100).rounded() / 100
+        let lng = (loc.coordinate.longitude * 100).rounded() / 100
+        return "\(lat)_\(lng)"
     }
 
     private func bestGPSAccuracy() -> CLLocationAccuracy {

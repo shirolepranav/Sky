@@ -17,7 +17,8 @@ final class RealVerificationService: VerificationService {
             let frameResult = try await VisionAnalyzer().analyze(videoURL: input.videoURL)
             let decision    = VerificationDecisionEngine().evaluate(
                 sensor: input.sensorReading,
-                frame:  frameResult
+                frame:  frameResult,
+                nightModeEnabled: SharedDefaults().nightModeEnabled
             )
             switch decision {
             case .success:           return .success

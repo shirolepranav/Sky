@@ -40,11 +40,20 @@ extension DeviceActivityEvent.Name {
     /// Combined-mode: one event that covers all selected apps.
     static let dailyLimitReached = DeviceActivityEvent.Name("dailyLimitReached")
 
+    /// Combined-mode: fires 30 minutes before the limit (Phase 15 warning).
+    static let dailyWarning = DeviceActivityEvent.Name("dailyWarning")
+
     /// Per-app mode: deterministic name derived from the token's JSON encoding.
     /// Collisions are cryptographically implausible; no CryptoKit dependency needed.
     static func perAppLimit(for token: ApplicationToken) -> DeviceActivityEvent.Name {
         let data = (try? JSONEncoder().encode(token)) ?? Data()
         return DeviceActivityEvent.Name("perApp_\(data.base64EncodedString())")
+    }
+
+    /// Per-app mode: the 30-minutes-before warning counterpart (Phase 15).
+    static func perAppWarning(for token: ApplicationToken) -> DeviceActivityEvent.Name {
+        let data = (try? JSONEncoder().encode(token)) ?? Data()
+        return DeviceActivityEvent.Name("perAppWarn_\(data.base64EncodedString())")
     }
 }
 
@@ -124,13 +133,29 @@ final class DeviceActivityService: ObservableObject {
         if limitMode == "perApp" {
             return makePerAppEvents(from: perAppLimitsData)
         }
-        // Default: combined
-        let event = DeviceActivityEvent(
-            applications: selection.applicationTokens,
-            categories: selection.categoryTokens,
-            threshold: DateComponents(second: combinedLimitSeconds)
-        )
-        return [.dailyLimitReached: event]
+        // Default: combined — a limit event plus a paired 30-min warning event.
+        var events: [DeviceActivityEvent.Name: DeviceActivityEvent] = [
+            .dailyLimitReached: DeviceActivityEvent(
+                applications: selection.applicationTokens,
+                categories: selection.categoryTokens,
+                threshold: DateComponents(second: combinedLimitSeconds)
+            )
+        ]
+        if let warnSeconds = warningThresholdSeconds(for: combinedLimitSeconds) {
+            events[.dailyWarning] = DeviceActivityEvent(
+                applications: selection.applicationTokens,
+                categories: selection.categoryTokens,
+                threshold: DateComponents(second: warnSeconds)
+            )
+        }
+        return events
+    }
+
+    /// The 30-minutes-before threshold for a limit, or nil when the limit is
+    /// 30 minutes or less (no room for a distinct earlier warning).
+    static func warningThresholdSeconds(for limitSeconds: Int) -> Int? {
+        let warn = limitSeconds - 30 * 60
+        return warn > 0 ? warn : nil
     }
 
     // MARK: Private helpers
@@ -145,11 +170,17 @@ final class DeviceActivityService: ObservableObject {
 
         var events: [DeviceActivityEvent.Name: DeviceActivityEvent] = [:]
         for entry in entries {
-            let event = DeviceActivityEvent(
+            let limitSeconds = entry.minutes * 60
+            events[.perAppLimit(for: entry.token)] = DeviceActivityEvent(
                 applications: [entry.token],
-                threshold: DateComponents(second: entry.minutes * 60)
+                threshold: DateComponents(second: limitSeconds)
             )
-            events[.perAppLimit(for: entry.token)] = event
+            if let warnSeconds = warningThresholdSeconds(for: limitSeconds) {
+                events[.perAppWarning(for: entry.token)] = DeviceActivityEvent(
+                    applications: [entry.token],
+                    threshold: DateComponents(second: warnSeconds)
+                )
+            }
         }
         return events
     }

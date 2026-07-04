@@ -5,6 +5,9 @@
 // Entry point to picking which apps to limit. Presents Apple's opaque picker;
 // Sky shows only a count + token icons (never names). Persists the selection to
 // the App Group on dismiss.
+//
+// Phase 14: enforces the free-tier 2-app cap. When a free user picks >2 apps,
+// S-PAY-05 (InContextProGateView) appears; "See Pro" opens the full paywall.
 
 import SwiftUI
 import FamilyControls
@@ -14,7 +17,10 @@ struct AppSelectionView: View {
     /// Invoked when the user taps "Continue" with a valid selection.
     let onContinue: () -> Void
 
+    @EnvironmentObject private var storeKit: StoreKitService
+
     @State private var isPickerPresented = false
+    @State private var showPaywall = false
 
     var body: some View {
         VStack(spacing: SkySpacing.s8) {
@@ -45,9 +51,37 @@ struct AppSelectionView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(SkyColor.surface.ignoresSafeArea())
         .accessibilityIdentifier("appSelection.root")
+        // S-PAY-05 · Pro gate when free user picks >2 apps.
+        .sheet(isPresented: $viewModel.needsUpgrade) {
+            InContextProGateView(
+                featureTitle: "More than 2 apps is a Pro feature.",
+                onSeePro: {
+                    viewModel.needsUpgrade = false
+                    showPaywall = true
+                },
+                onDismiss: { viewModel.needsUpgrade = false }
+            )
+            .presentationDetents([.medium])
+        }
+        .fullScreenCover(isPresented: $showPaywall) {
+            PaywallView { showPaywall = false }
+                .environmentObject(storeKit)
+        }
         // S-CFG-02 · Apple-owned picker. Persist on dismiss.
-        .sheet(isPresented: $isPickerPresented, onDismiss: viewModel.persistSelection) {
-            FamilyActivityPicker(selection: $viewModel.selection)
+        // FamilyActivityPicker has no Done button of its own — wrap it in our own
+        // NavigationStack chrome so the user can confirm and dismiss.
+        .sheet(isPresented: $isPickerPresented, onDismiss: { viewModel.persistSelection(isPro: storeKit.isPro) }) {
+            NavigationStack {
+                FamilyActivityPicker(selection: $viewModel.selection)
+                    .navigationTitle("Choose apps")
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar {
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("Done") { isPickerPresented = false }
+                                .accessibilityIdentifier("appSelection.picker.done")
+                        }
+                    }
+            }
         }
     }
 
@@ -69,10 +103,11 @@ struct AppSelectionView: View {
                         .skyText(.body, color: SkyColor.inkSoft)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 } else {
-                    Text("\(viewModel.count) apps selected")
+                    Text(viewModel.summaryText)
                         .skyText(.titleM)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .accessibilityValue("\(viewModel.count) apps")
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityValue(viewModel.summaryText)
                     selectedTokens
                 }
             }
@@ -81,12 +116,19 @@ struct AppSelectionView: View {
     }
 
     /// Token icons for the current selection (no names — Sky can't see them).
+    /// Shows app icons and category icons so a category-only pick isn't blank.
     @ViewBuilder
     private var selectedTokens: some View {
         let appTokens = Array(viewModel.selection.applicationTokens)
+        let categoryTokens = Array(viewModel.selection.categoryTokens)
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: SkySpacing.s3) {
                 ForEach(appTokens, id: \.self) { token in
+                    Label(token)
+                        .labelStyle(.iconOnly)
+                        .font(.system(size: 28))
+                }
+                ForEach(categoryTokens, id: \.self) { token in
                     Label(token)
                         .labelStyle(.iconOnly)
                         .font(.system(size: 28))
@@ -98,4 +140,5 @@ struct AppSelectionView: View {
 
 #Preview("S-CFG-01 App Selection (empty)") {
     AppSelectionView(viewModel: AppSelectionViewModel(), onContinue: {})
+        .environmentObject(StoreKitService())
 }
