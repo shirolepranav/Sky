@@ -40,14 +40,35 @@ extension SkyTextStyle {
     static let tabLabel = SkyTextStyle(size: 10, weight: .bold,     tracking: 0.3,  lineHeightMultiple: 1.00)
 }
 
-extension View {
-    /// Apply a Sky text style (font + tracking + line spacing + color).
-    func skyText(_ style: SkyTextStyle, color: Color = SkyColor.ink) -> some View {
-        self
-            .font(style.font)
+/// Applies a Sky text style with Dynamic Type support. `@ScaledMetric` scales the
+/// design's point size relative to the user's text-size setting and re-renders
+/// live when it changes; the app root clamps growth (…accessibility1) so the
+/// tight hero/ring layouts don't break. Line spacing scales proportionally.
+private struct SkyTextModifier: ViewModifier {
+    let style: SkyTextStyle
+    let color: Color
+    @ScaledMetric private var scaledSize: CGFloat
+
+    init(style: SkyTextStyle, color: Color) {
+        self.style = style
+        self.color = color
+        _scaledSize = ScaledMetric(wrappedValue: style.size, relativeTo: .body)
+    }
+
+    func body(content: Content) -> some View {
+        content
+            .font(.system(size: scaledSize, weight: style.weight, design: .rounded))
             .tracking(style.tracking)
-            .lineSpacing(style.lineSpacing)
+            .lineSpacing(max(0, scaledSize * (style.lineHeightMultiple - 1)))
             .foregroundStyle(color)
+    }
+}
+
+extension View {
+    /// Apply a Sky text style (font + tracking + line spacing + color), scaled for
+    /// Dynamic Type.
+    func skyText(_ style: SkyTextStyle, color: Color = SkyColor.ink) -> some View {
+        modifier(SkyTextModifier(style: style, color: color))
     }
 }
 

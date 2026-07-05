@@ -11,6 +11,7 @@ struct SettingsView: View {
     @EnvironmentObject private var storeKit: StoreKitService
     @EnvironmentObject private var scheduler: LocalNotificationScheduler
     @EnvironmentObject private var streakManager: StreakManager
+    @EnvironmentObject private var appearance: AppearanceManager
 
     @State private var store = SharedDefaults()
     @State private var morning = SharedDefaults().notifMorningEnabled
@@ -23,6 +24,7 @@ struct SettingsView: View {
         NavigationStack {
             List {
                 appsAndLimitsSection
+                appearanceSection
                 pauseSection
                 notificationsSection
                 nightModeSection
@@ -53,6 +55,20 @@ struct SettingsView: View {
     private var appsAndLimitsSection: some View {
         Section("Apps & Limits") {
             NavigationLink("Apps & daily limits") { SettingsAppsAndLimitsView() }
+        }
+    }
+
+    private var appearanceSection: some View {
+        Section("Appearance") {
+            NavigationLink {
+                AppearanceView()
+            } label: {
+                HStack {
+                    Text("Appearance").skyText(.body, color: SkyColor.ink)
+                    Spacer()
+                    Text(appearance.mode.title).skyText(.body, color: SkyColor.inkMuted)
+                }
+            }
         }
     }
 
@@ -158,4 +174,5 @@ struct SettingsView: View {
         .environmentObject(CloudKitSyncService())
         .environmentObject(DeviceActivityService())
         .environmentObject(MascotStateManager())
+        .environmentObject(AppearanceManager())
 }

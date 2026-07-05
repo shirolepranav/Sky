@@ -27,10 +27,12 @@ struct MilestoneOverlayView: View {
 
     var body: some View {
         ZStack {
+            // Adaptive celebration backdrop: warm cream→sky in light, a calm
+            // night-sky gradient in dark, so the adaptive `ink` text stays legible.
             LinearGradient(
                 colors: [
-                    Color(hex: "FFF6E5"),
-                    Color(hex: "A8D8EA").opacity(0.4)
+                    Color(light: Color(hex: "FFF6E5"), dark: Color(hex: "15171F")),
+                    Color(light: Color(hex: "A8D8EA").opacity(0.4), dark: Color(hex: "232838"))
                 ],
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing

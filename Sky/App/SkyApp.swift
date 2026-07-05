@@ -48,6 +48,7 @@ struct SkyApp: App {
     @StateObject private var cloudKitSync = CloudKitSyncService()
     @StateObject private var storeKit = StoreKitService()
     @StateObject private var scheduler = LocalNotificationScheduler()
+    @StateObject private var appearance = AppearanceManager()
     @Environment(\.scenePhase) private var scenePhase
     @State private var isReady = false
     @State private var deepLinkDestination: SkyDeepLink? = nil
@@ -94,6 +95,13 @@ struct SkyApp: App {
                 }
             }
             .animation(.easeInOut(duration: 0.25), value: isReady)
+            // Phase 16: apply the user's appearance choice app-wide. `nil` follows
+            // the device; .light/.dark force the theme. Adaptive SkyColor tokens
+            // resolve against whatever interface style this yields.
+            .preferredColorScheme(appearance.mode.colorScheme)
+            // Phase 16: support Dynamic Type but cap growth so the tight hero,
+            // progress ring, and camera overlays stay intact at large sizes.
+            .dynamicTypeSize(...DynamicTypeSize.accessibility1)
             .onAppear { isReady = true }
             .onChange(of: scenePhase) { _, phase in
                 // Catch a permission toggled in Settings (S-PERM-02 recovery).
@@ -210,6 +218,8 @@ struct SkyApp: App {
                 .environmentObject(scheduler)
                 // TodayView reads this to surface the entitlementMissing state (S-TODAY-01).
                 .environmentObject(coordinator.familyControls)
+                // SettingsView → AppearanceView reads this to change the theme (S-SET-10).
+                .environmentObject(appearance)
         }
     }
 }

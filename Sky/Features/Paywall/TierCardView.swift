@@ -68,7 +68,9 @@ struct TierCardView: View {
 
                 if let badge = badgeText, !isLoading {
                     Text(badge)
-                        .skyText(.caption, color: SkyColor.ink)
+                        // Fixed dark ink — the yellow capsule stays bright in dark
+                        // mode, so adaptive `ink` would flip near-white and vanish.
+                        .skyText(.caption, color: SkyColor.inkOnAccent)
                         .padding(.horizontal, SkySpacing.s3)
                         .padding(.vertical, SkySpacing.s1)
                         .background(SkyColor.sunYellow.opacity(0.6), in: Capsule())

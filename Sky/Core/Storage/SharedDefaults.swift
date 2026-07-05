@@ -52,6 +52,8 @@ struct SharedDefaults {
         static let pauseStartedAt = "pause_started_at"
         static let lastPauseDate = "last_pause_date"
         static let notificationPrimerShown = "notif_primer_shown"
+        // Phase 16 — appearance (light/dark/system) preference
+        static let appearanceMode = "appearance_mode"
     }
 
     // MARK: Configuration (written by main app, read by extensions)
@@ -224,6 +226,16 @@ struct SharedDefaults {
     var notificationPrimerShown: Bool {
         get { defaults.bool(forKey: Key.notificationPrimerShown) }
         nonmutating set { defaults.set(newValue, forKey: Key.notificationPrimerShown) }
+    }
+
+    // MARK: Phase 16 — Appearance (light / dark / system; default system)
+
+    /// The user's appearance choice as a raw string ("system" / "light" / "dark").
+    /// Prefer the typed `AppearanceManager`; this is the raw storage. Defaults to
+    /// "system" so the app follows the device setting until the user picks otherwise.
+    var appearanceModeRaw: String {
+        get { defaults.string(forKey: Key.appearanceMode) ?? "system" }
+        nonmutating set { defaults.set(newValue, forKey: Key.appearanceMode) }
     }
 
     // MARK: Typed selection accessor

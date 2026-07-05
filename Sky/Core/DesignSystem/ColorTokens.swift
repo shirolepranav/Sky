@@ -37,6 +37,21 @@ extension Color {
         }
         self = Color(.sRGB, red: r, green: g, blue: b, opacity: a)
     }
+
+    /// An adaptive color that resolves to `light` or `dark` based on the active
+    /// interface style (system setting or an in-app `.preferredColorScheme`
+    /// override). This keeps `SkyColor` the single source of truth — no Asset
+    /// Catalog color sets. Guarded because `UIColor(dynamicProvider:)` is
+    /// unavailable under the macOS SDK used by the CLAUDE.md type-check path.
+    init(light: Color, dark: Color) {
+        #if canImport(UIKit)
+        self = Color(uiColor: UIColor { traitCollection in
+            traitCollection.userInterfaceStyle == .dark ? UIColor(dark) : UIColor(light)
+        })
+        #else
+        self = light // macOS type-check fallback only — device builds use UIKit.
+        #endif
+    }
 }
 
 /// All Sky color tokens. Use these — do not inline hex values elsewhere.
@@ -44,8 +59,10 @@ enum SkyColor {
     // MARK: Brand palette
     static let primarySky = Color(hex: "A8D8EA")        // hero, calm backgrounds
     static let primarySkyDeep = Color(hex: "7AB8D0")    // hover / active
-    static let warmCream = Color(hex: "FFF6E5")         // surfaces, shield, chips
-    static let warmCreamDeep = Color(hex: "F5EAD0")     // pressed cream
+    // Cream is a *surface* (chips, shield, cream cards), so it must darken in
+    // dark mode — otherwise the now-adaptive `ink` text on it would be unreadable.
+    static let warmCream = Color(light: Color(hex: "FFF6E5"), dark: Color(hex: "232633"))     // surfaces, shield, chips
+    static let warmCreamDeep = Color(light: Color(hex: "F5EAD0"), dark: Color(hex: "2C3040")) // pressed cream
     static let mossGreen = Color(hex: "7CB342")         // tints, nav active, success on light
     static let mossGreenDeep = Color(hex: "5C8A2E")     // green text/icons on white
     /// Primary button fill — deeper moss so a white label clears WCAG AA (4.6:1).
@@ -58,19 +75,25 @@ enum SkyColor {
     static let sunYellow = Color(hex: "FFD66B")         // verified, milestones, badges
     static let sunYellowDeep = Color(hex: "E5B843")     // yellow shadow / accent
 
-    // MARK: Text
-    static let ink = Color(hex: "2D3748")               // primary text (never #000)
-    static let inkSoft = Color(hex: "5A6373")           // secondary
-    static let inkMuted = Color(hex: "9CA3AF")          // tertiary / captions / overlines
-    static let inkDisabled = Color(hex: "CBD5E0")       // disabled fills & text
+    // MARK: Text — adaptive (light value / dark value). Never pure #000/#FFF.
+    static let ink = Color(light: Color(hex: "2D3748"), dark: Color(hex: "F0F4F8"))     // primary text
+    static let inkSoft = Color(light: Color(hex: "5A6373"), dark: Color(hex: "A8B3C2")) // secondary
+    static let inkMuted = Color(light: Color(hex: "9CA3AF"), dark: Color(hex: "7C8797")) // tertiary / captions
+    static let inkDisabled = Color(light: Color(hex: "CBD5E0"), dark: Color(hex: "3A4150")) // disabled fills & text
+    /// Fixed dark ink for content drawn *on top of a bright accent fill*
+    /// (sunYellow / coralStreak / primarySky / mossGreen tints). These fills stay
+    /// bright in dark mode, so `ink` (which flips near-white) must not be used there.
+    static let inkOnAccent = Color(hex: "2D3748")
 
-    // MARK: Surfaces
-    static let surface = Color(hex: "FFFBF2")           // main app background
-    static let surfaceCard = Color(hex: "FFFFFF")       // cards on top of surface
-    static let surfaceElev = Color(hex: "FFFEFB")       // elevated surfaces
-    static let divider = Color(hex: "2D3748").opacity(0.08) // hairline dividers & borders
+    // MARK: Surfaces — adaptive
+    static let surface = Color(light: Color(hex: "FFFBF2"), dark: Color(hex: "15171F"))     // main app background
+    static let surfaceCard = Color(light: Color(hex: "FFFFFF"), dark: Color(hex: "1F2230")) // cards on top of surface
+    static let surfaceElev = Color(light: Color(hex: "FFFEFB"), dark: Color(hex: "242838")) // elevated surfaces
+    static let divider = Color(light: Color(hex: "2D3748").opacity(0.08),
+                              dark: Color.white.opacity(0.08))                              // hairline dividers & borders
 
-    // MARK: Dark mode
+    // MARK: Dark-mode raw inputs (kept for `dark:`-context views like the camera
+    // viewfinder and always-dark overlays; also feed the adaptive tokens above).
     static let darkBg = Color(hex: "15171F")            // deep night-sky background
     static let darkBgElev = Color(hex: "1F2230")        // elevated dark surface
     static let darkInk = Color(hex: "F0F4F8")           // primary text on dark
