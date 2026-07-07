@@ -61,27 +61,33 @@ struct NimbusView: View {
     var state: MascotState = .fluffyWhite
     var size: CGFloat = 180
     var expressionOverride: NimbusExpression? = nil
+    /// Renders the canonical frozen pose with no live timeline — for
+    /// ImageRenderer exports (NimbusPNGExporter) and fixed-pose previews.
+    var isStatic: Bool = false
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var bob = false
     @State private var fromState: MascotState? = nil
     @State private var morphProgress: Double = 1
 
+    /// Idle loops freeze on first frame under Reduce Motion (Workflow §3.6).
+    private var idleFrozen: Bool { reduceMotion || isStatic }
+
     var body: some View {
-        NimbusCanvas(
-            from: fromState ?? state,
-            to: state,
-            progress: morphProgress,
-            crossfadeOnly: reduceMotion,
-            expressionOverride: expressionOverride
-        )
-        .frame(width: size, height: size * 0.78)
-        .offset(y: bob ? -4 : 0)
-        .onAppear {
-            guard !reduceMotion else { return }
-            withAnimation(.easeInOut(duration: SkyMotion.bobPeriod / 2).repeatForever(autoreverses: true)) {
-                bob = true
-            }
+        // 24fps cap: the idle motion is gentle enough that display-rate
+        // updates would only cost battery. `paused` renders exactly one frame.
+        TimelineView(.animation(minimumInterval: 1.0 / 24.0, paused: idleFrozen)) { timeline in
+            let time: TimeInterval? =
+                idleFrozen ? nil : timeline.date.timeIntervalSinceReferenceDate
+            NimbusCanvas(
+                from: fromState ?? state,
+                to: state,
+                progress: morphProgress,
+                time: time,
+                crossfadeOnly: reduceMotion,
+                expressionOverride: expressionOverride
+            )
+            .frame(width: size, height: size * 0.78)
+            .offset(y: NimbusIdle.bobOffset(at: time))
         }
         .onChange(of: state) { oldState, _ in
             beginMorph(from: oldState)
@@ -107,12 +113,14 @@ struct NimbusView: View {
     }
 }
 
-/// Animatable canvas: SwiftUI interpolates `progress` per frame and re-renders
-/// the drawing through NimbusRenderer.
+/// Animatable canvas: SwiftUI interpolates `progress` per frame (the morph)
+/// while the enclosing TimelineView refreshes `time` (the idle loops); either
+/// source of change re-renders the drawing through NimbusRenderer.
 private struct NimbusCanvas: View, Animatable {
     var from: MascotState
     var to: MascotState
     var progress: Double
+    var time: TimeInterval?
     var crossfadeOnly: Bool
     var expressionOverride: NimbusExpression?
 
@@ -130,6 +138,7 @@ private struct NimbusCanvas: View, Animatable {
                 from: from,
                 to: to,
                 t: progress,
+                time: time,
                 crossfadeOnly: crossfadeOnly,
                 expressionOverride: expressionOverride
             )

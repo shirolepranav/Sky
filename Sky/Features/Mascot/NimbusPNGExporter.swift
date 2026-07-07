@@ -18,7 +18,7 @@ struct NimbusPNGExporter: View {
 
     var body: some View {
         VStack(spacing: 24) {
-            NimbusView(state: .cloudyGrey, size: 180)
+            NimbusView(state: .cloudyGrey, size: 180, isStatic: true)
 
             Text(status)
                 .font(.system(.caption, design: .monospaced))
@@ -45,8 +45,10 @@ struct NimbusPNGExporter: View {
         var lines: [String] = []
 
         for scale in [1, 2, 3] {
+            // isStatic renders the canonical frozen pose (no bob offset, no
+            // mid-blink frame) so exported assets are deterministic.
             let renderer = ImageRenderer(
-                content: NimbusView(state: .cloudyGrey, size: pt)
+                content: NimbusView(state: .cloudyGrey, size: pt, isStatic: true)
                     .frame(width: pt, height: pt * 0.78)
             )
             renderer.scale = CGFloat(scale)

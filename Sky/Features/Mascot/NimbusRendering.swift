@@ -161,6 +161,82 @@ enum NimbusMouthSpec: Equatable {
     }
 }
 
+// MARK: - Idle micro-animation math
+
+/// Deterministic pure functions of wall-clock time driving the idle
+/// micro-animations (CLAUDE.md rule 6: subtle motion only). Passing `nil`
+/// time anywhere yields the canonical static pose — which is exactly the
+/// frozen frame Reduce Motion requires (Workflow §3.6 "idle loops freeze
+/// on first frame").
+enum NimbusIdle {
+    /// Vertical bob: full sine cycle over `SkyMotion.bobPeriod`, 0…−4pt like
+    /// the original ease-in-out loop.
+    static func bobOffset(at time: TimeInterval?) -> CGFloat {
+        guard let time else { return 0 }
+        return CGFloat(-2 - 2 * sin(2 * .pi * time / SkyMotion.bobPeriod))
+    }
+
+    /// Eye openness 1…0.15…1. Blinks last 0.12s at the start of each 4s
+    /// cycle, skipped pseudo-randomly so the rhythm feels organic (~3–5s
+    /// apart on average).
+    static func blink(at time: TimeInterval?) -> Double {
+        guard let time else { return 1 }
+        let cycle: TimeInterval = 4
+        let blinkDuration: TimeInterval = 0.12
+        let n = (time / cycle).rounded(.down)
+        // Hash the cycle index into [0, 1); skip ~1 in 5 blinks.
+        let jitter = (sin(n * 12.9898) * 43758.5453).truncatingRemainder(dividingBy: 1)
+        guard abs(jitter) > 0.2 else { return 1 }
+        let phase = time - n * cycle
+        guard phase < blinkDuration else { return 1 }
+        let p = phase / blinkDuration          // 0…1 through the blink
+        let closed = 0.15
+        return p < 0.5
+            ? 1 - (1 - closed) * (p * 2)       // closing
+            : closed + (1 - closed) * ((p - 0.5) * 2) // opening
+    }
+
+    /// Cloud "breathing": ±1% scale, 5s period.
+    static func breathScale(at time: TimeInterval?) -> CGFloat {
+        guard let time else { return 1 }
+        return CGFloat(1 + 0.01 * sin(2 * .pi * time / 5))
+    }
+
+    /// Sun-ray rotation: one calm revolution per minute.
+    static func sunRayAngle(at time: TimeInterval?) -> CGFloat {
+        guard let time else { return 0 }
+        return CGFloat(time.truncatingRemainder(dividingBy: 60) / 60 * 2 * .pi)
+    }
+
+    /// Falling offset for rain drop `index`: 0…18pt below its resting spot,
+    /// staggered per drop, looping.
+    static func rainDropFall(index: Int, at time: TimeInterval?) -> CGFloat {
+        guard let time else { return 0 }
+        let stagger = Double(index) * 3.7
+        return CGFloat((time * 22 + stagger * 18 / 5).truncatingRemainder(dividingBy: 18))
+    }
+
+    /// Rain drop visibility 0…1: triangle-peaks mid-fall so drops fade in
+    /// near the cloud and out near the bottom of the band.
+    static func rainDropVisibility(fall: CGFloat) -> Double {
+        1 - abs(Double(fall) / 18 * 2 - 1)
+    }
+
+    /// Sparkle twinkle 0.1…1 for sparkle `index`.
+    static func sparkleAlpha(index: Int, at time: TimeInterval?) -> Double {
+        guard let time else { return 1 }
+        let phase = Double(index) * 1.6
+        return 0.55 + 0.45 * sin(time * 2 + phase)
+    }
+
+    /// Sparkle radius modulation ±15%.
+    static func sparkleRadiusScale(index: Int, at time: TimeInterval?) -> CGFloat {
+        guard let time else { return 1 }
+        let phase = Double(index) * 1.6 + 0.8
+        return CGFloat(1 + 0.15 * sin(time * 2 + phase))
+    }
+}
+
 // MARK: - Render model
 
 /// Everything continuous about one mascot state, ready to draw or to lerp.
@@ -263,17 +339,20 @@ enum NimbusRenderer {
     /// Entry point. `t == 1` (or `from == to`) draws the target state exactly
     /// as the pre-morph implementation did; `crossfadeOnly` is the Reduce
     /// Motion path (flattened whole-mascot crossfade, Workflow §3.6).
+    /// `time` drives the idle micro-animations; `nil` freezes them on the
+    /// canonical pose.
     static func render(
         _ ctx: inout GraphicsContext,
         from: MascotState,
         to: MascotState,
         t: Double,
+        time: TimeInterval? = nil,
         crossfadeOnly: Bool,
         expressionOverride: NimbusExpression? = nil
     ) {
         let toModel = NimbusRenderModel.model(for: to, expressionOverride: expressionOverride)
         guard from != to, t < 1 else {
-            drawState(&ctx, model: toModel)
+            drawState(&ctx, model: toModel, time: time)
             return
         }
         let fromModel = NimbusRenderModel.model(for: from, expressionOverride: expressionOverride)
@@ -281,39 +360,67 @@ enum NimbusRenderer {
         if crossfadeOnly {
             ctx.drawLayer { layer in
                 layer.opacity = 1 - t
-                drawState(&layer, model: fromModel)
+                drawState(&layer, model: fromModel, time: nil)
             }
             ctx.drawLayer { layer in
                 layer.opacity = t
-                drawState(&layer, model: toModel)
+                drawState(&layer, model: toModel, time: nil)
             }
             return
         }
 
         let blended = NimbusRenderModel.lerp(fromModel, toModel, t)
 
-        // Accessories: each state's own accessory, faded out / in.
-        drawAccessories(&ctx, model: fromModel, opacity: 1 - t)
-        drawAccessories(&ctx, model: toModel, opacity: t)
+        // Accessories: each state's own accessory, faded out / in. They keep
+        // idling (rain keeps falling, rays keep turning) while they fade.
+        drawAccessories(&ctx, model: fromModel, opacity: 1 - t, time: time)
+        drawAccessories(&ctx, model: toModel, opacity: t, time: time)
 
-        drawCloud(&ctx, model: blended)
-        drawFaceMorph(&ctx, from: fromModel, to: toModel, blended: blended, t: t)
+        var body = breathingContext(ctx, time: time)
+        drawCloud(&body, model: blended)
+        // Blinks are suppressed mid-morph so they never fight the eye morph.
+        drawFaceMorph(&body, from: fromModel, to: toModel, blended: blended, t: t)
     }
 
     // MARK: Single-state drawing (t = 0 or 1)
 
-    static func drawState(_ ctx: inout GraphicsContext, model: NimbusRenderModel) {
-        drawAccessories(&ctx, model: model, opacity: 1)
-        drawCloud(&ctx, model: model)
-        drawFace(&ctx, model: model)
+    static func drawState(
+        _ ctx: inout GraphicsContext, model: NimbusRenderModel, time: TimeInterval?
+    ) {
+        drawAccessories(&ctx, model: model, opacity: 1, time: time)
+        var body = breathingContext(ctx, time: time)
+        drawCloud(&body, model: model)
+        drawFace(&body, model: model, blink: NimbusIdle.blink(at: time))
+    }
+
+    /// A context copy scaled by the breathing factor around the cloud's
+    /// visual centre (100, 80). Copies share the underlying drawing surface
+    /// but carry independent transform state.
+    private static func breathingContext(
+        _ ctx: GraphicsContext, time: TimeInterval?
+    ) -> GraphicsContext {
+        let s = NimbusIdle.breathScale(at: time)
+        var copy = ctx
+        guard s != 1 else { return copy }
+        copy.translateBy(x: 100, y: 80)
+        copy.scaleBy(x: s, y: s)
+        copy.translateBy(x: -100, y: -80)
+        return copy
     }
 
     private static func drawAccessories(
-        _ ctx: inout GraphicsContext, model: NimbusRenderModel, opacity: Double
+        _ ctx: inout GraphicsContext, model: NimbusRenderModel, opacity: Double,
+        time: TimeInterval?
     ) {
-        if model.sunOpacity > 0 { drawSun(&ctx, opacity: model.sunOpacity * opacity) }
-        if model.rainbowOpacity > 0 { drawRainbow(&ctx, opacity: model.rainbowOpacity * opacity) }
-        if model.rainOpacity > 0 { drawRain(&ctx, opacity: model.rainOpacity * opacity) }
+        if model.sunOpacity > 0 {
+            drawSun(&ctx, opacity: model.sunOpacity * opacity, time: time)
+        }
+        if model.rainbowOpacity > 0 {
+            drawRainbow(&ctx, opacity: model.rainbowOpacity * opacity, time: time)
+        }
+        if model.rainOpacity > 0 {
+            drawRain(&ctx, opacity: model.rainOpacity * opacity, time: time)
+        }
     }
 
     // MARK: Primitive helpers
@@ -351,14 +458,17 @@ enum NimbusRenderer {
 
     // MARK: Background accessories
 
-    private static func drawSun(_ ctx: inout GraphicsContext, opacity: Double) {
+    private static func drawSun(
+        _ ctx: inout GraphicsContext, opacity: Double, time: TimeInterval?
+    ) {
         guard opacity > 0 else { return }
         let sun = SkyColor.sunYellow
         fillCircle(&ctx, 100, 80, 62, sun, 0.35 * opacity)
         fillCircle(&ctx, 100, 80, 48, sun, 0.5 * opacity)
         let ray = Path(roundedRect: CGRect(x: 98, y: -6, width: 4, height: 14), cornerRadius: 2)
+        let spin = NimbusIdle.sunRayAngle(at: time)
         for deg in stride(from: 0, to: 360, by: 45) {
-            let rad = CGFloat(deg) * .pi / 180
+            let rad = CGFloat(deg) * .pi / 180 + spin
             var t = CGAffineTransform.identity
             t = t.translatedBy(x: 100, y: 80)
             t = t.rotated(by: rad)
@@ -367,7 +477,9 @@ enum NimbusRenderer {
         }
     }
 
-    private static func drawRainbow(_ ctx: inout GraphicsContext, opacity: Double) {
+    private static func drawRainbow(
+        _ ctx: inout GraphicsContext, opacity: Double, time: TimeInterval?
+    ) {
         guard opacity > 0 else { return }
         let bands: [(Color, CGFloat)] = [
             (SkyColor.coralStreak, 85),
@@ -388,26 +500,39 @@ enum NimbusRenderer {
                 style: StrokeStyle(lineWidth: 10, lineCap: .round)
             )
         }
-        // sparkles
+        // sparkles (twinkle: alpha + radius modulation per sparkle)
         let sun = SkyColor.sunYellow
-        fillCircle(&ctx, 25, 40, 2.5, sun, opacity)
-        fillCircle(&ctx, 175, 50, 2, sun, opacity)
-        fillCircle(&ctx, 15, 90, 1.8, sun, opacity)
-        fillCircle(&ctx, 185, 100, 2.2, sun, opacity)
+        let sparkles: [(CGFloat, CGFloat, CGFloat)] = [
+            (25, 40, 2.5), (175, 50, 2), (15, 90, 1.8), (185, 100, 2.2),
+        ]
+        for (i, sparkle) in sparkles.enumerated() {
+            let (x, y, r) = sparkle
+            fillCircle(&ctx, x, y, r * NimbusIdle.sparkleRadiusScale(index: i, at: time),
+                       sun, opacity * NimbusIdle.sparkleAlpha(index: i, at: time))
+        }
     }
 
-    private static func drawRain(_ ctx: inout GraphicsContext, opacity: Double) {
+    private static func drawRain(
+        _ ctx: inout GraphicsContext, opacity: Double, time: TimeInterval?
+    ) {
         guard opacity > 0 else { return }
         let drop = Color(hex: "7BB3D6")
         let drops: [(CGFloat, CGFloat, CGFloat)] = [
             (55, 120, 14), (75, 130, 12), (100, 122, 16), (125, 132, 12), (145, 118, 14),
         ]
-        for (x, y, h) in drops {
+        for (i, spec) in drops.enumerated() {
+            let (x, restY, h) = spec
+            // Animated drops fall through an 18pt window starting 6pt above
+            // the resting spot, fading in/out at the extremes; the frozen
+            // pose (fall 0, visibility 1) is the original static drawing.
+            let fall = NimbusIdle.rainDropFall(index: i, at: time)
+            let visibility = time == nil ? 1 : NimbusIdle.rainDropVisibility(fall: fall)
+            let y = time == nil ? restY : restY - 6 + fall
             var p = Path()
             p.move(to: CGPoint(x: x, y: y))
             p.addQuadCurve(to: CGPoint(x: x, y: y + h), control: CGPoint(x: x - 3, y: y + h / 2))
             p.addQuadCurve(to: CGPoint(x: x, y: y), control: CGPoint(x: x + 3, y: y + h / 2))
-            ctx.fill(p, with: .color(drop.opacity(0.85 * opacity)))
+            ctx.fill(p, with: .color(drop.opacity(0.85 * opacity * visibility)))
         }
     }
 
@@ -445,9 +570,11 @@ enum NimbusRenderer {
                     model.cheekRX, model.cheekRY, model.cheekColor.color, model.cheekAlpha)
     }
 
-    private static func drawFace(_ ctx: inout GraphicsContext, model: NimbusRenderModel) {
+    private static func drawFace(
+        _ ctx: inout GraphicsContext, model: NimbusRenderModel, blink: Double = 1
+    ) {
         drawHighlightAndCheeks(&ctx, model: model)
-        drawEyes(&ctx, spec: .spec(for: model.expr), alpha: 1)
+        drawEyes(&ctx, spec: .spec(for: model.expr), alpha: 1, blink: blink)
         drawMouth(&ctx, spec: .spec(for: model.expr), alpha: 1)
     }
 
@@ -484,19 +611,31 @@ enum NimbusRenderer {
     }
 
     private static func drawEyes(
-        _ ctx: inout GraphicsContext, spec: NimbusEyeSpec, alpha: Double
+        _ ctx: inout GraphicsContext, spec: NimbusEyeSpec, alpha: Double, blink: Double = 1
     ) {
         guard alpha > 0 else { return }
+        let squash = CGFloat(blink)
         switch spec {
         case .circles:
-            fillCircle(&ctx, 82, 70, 4, ink, alpha)
-            fillCircle(&ctx, 118, 70, 4, ink, alpha)
-            fillCircle(&ctx, 83.5, 68.5, 1.3, .white, alpha)
-            fillCircle(&ctx, 119.5, 68.5, 1.3, .white, alpha)
+            // Blink squashes the eyes vertically around their centres.
+            fillEllipse(&ctx, 82, 70, 4, 4 * squash, ink, alpha)
+            fillEllipse(&ctx, 118, 70, 4, 4 * squash, ink, alpha)
+            fillEllipse(&ctx, 83.5, 68.5, 1.3, 1.3 * squash, .white, alpha)
+            fillEllipse(&ctx, 119.5, 68.5, 1.3, 1.3 * squash, .white, alpha)
         case let .arcs(left, right):
-            strokeQuad(&ctx, left, alpha: alpha)
-            strokeQuad(&ctx, right, alpha: alpha)
+            // Blink flattens the arcs: the control point sinks toward the
+            // chord so the curve closes to a near-line.
+            strokeQuad(&ctx, flattened(left, by: blink), alpha: alpha)
+            strokeQuad(&ctx, flattened(right, by: blink), alpha: alpha)
         }
+    }
+
+    private static func flattened(_ quad: NimbusQuadSpec, by blink: Double) -> NimbusQuadSpec {
+        guard blink < 1 else { return quad }
+        var q = quad
+        let chordMid = CGPoint(x: (quad.a.x + quad.b.x) / 2, y: (quad.a.y + quad.b.y) / 2)
+        q.control = NimbusMorphMath.lerp(chordMid, quad.control, blink)
+        return q
     }
 
     private static func drawMouth(
