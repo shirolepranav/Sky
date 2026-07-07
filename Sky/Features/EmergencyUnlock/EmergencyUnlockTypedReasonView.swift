@@ -75,6 +75,8 @@ struct EmergencyUnlockTypedReasonView: View {
                     HStack {
                         Text(countdownLabel)
                             .skyText(.caption, color: SkyColor.inkSoft)
+                            .contentTransition(.numericText(countsDown: true))
+                            .animation(reduceMotion ? nil : SkyMotion.quickEase, value: countdown)
                             .accessibilityLabel(countdownDone ? "Ready to unlock" : "Ready in \(countdown) seconds")
 
                         Spacer()

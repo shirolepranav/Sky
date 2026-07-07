@@ -13,7 +13,10 @@ struct StreaksView: View {
     @EnvironmentObject private var cloudKitSync: CloudKitSyncService
     @EnvironmentObject private var storeKit: StoreKitService
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     @State private var streakDisplayed: Int = 0
+    @State private var revealed = false
     @State private var showBadgesGrid = false
     @State private var showWeeklyInsights = false
     @State private var showInsightsProGate = false
@@ -25,10 +28,10 @@ struct StreaksView: View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: SkySpacing.s8) {
-                    streakHero
-                    statCards
-                    badgesSection
-                    weeklyInsightsSection
+                    streakHero.skyEntrance(0, revealed: revealed)
+                    statCards.skyEntrance(1, revealed: revealed)
+                    badgesSection.skyEntrance(2, revealed: revealed)
+                    weeklyInsightsSection.skyEntrance(3, revealed: revealed)
                     Spacer(minLength: SkySpacing.s10)
                 }
                 .padding(.top, SkySpacing.s6)
@@ -64,7 +67,10 @@ struct StreaksView: View {
             }
             .accessibilityIdentifier("streaks.home")
         }
-        .onAppear { animateStreakIn() }
+        .onAppear {
+            revealed = true
+            animateStreakIn()
+        }
     }
 
     // MARK: - Hero streak number
@@ -82,6 +88,7 @@ struct StreaksView: View {
                     FlameIcon(color: SkyColor.coralStreak, size: 36)
                     Text("\(streakDisplayed)")
                         .skyText(.display, color: SkyColor.coralStreak)
+                        .contentTransition(.numericText(value: Double(streakDisplayed)))
                 }
                 Text("day\(progress.currentStreak == 1 ? "" : "s")")
                     .skyText(.titleM, color: SkyColor.inkSoft)
@@ -180,6 +187,10 @@ struct StreaksView: View {
     private func animateStreakIn() {
         let target = progress.currentStreak
         guard target > 0 else { return }
+        guard !reduceMotion else {
+            streakDisplayed = target
+            return
+        }
         streakDisplayed = 0
         withAnimation(.easeOut(duration: SkyMotion.countUp)) {
             streakDisplayed = target

@@ -44,6 +44,10 @@ struct VideoRecordingView: View {
                     Text("\(30 - vm.elapsedSeconds)")
                         .skyText(.titleM)
                         .foregroundColor(.white)
+                        .contentTransition(.numericText(countsDown: true))
+                        // Reduce Motion → discrete 1-second ticks (§3.6).
+                        .animation(reduceMotion ? nil : SkyMotion.quickEase,
+                                   value: vm.elapsedSeconds)
                 }
                 .padding(.top, SkySpacing.s8)
                 .modifier(ReduceMotionTransaction(reduce: reduceMotion))

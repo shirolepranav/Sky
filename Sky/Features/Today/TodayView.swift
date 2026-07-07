@@ -33,9 +33,12 @@ struct TodayView: View {
     @EnvironmentObject private var storeKit: StoreKitService
     @EnvironmentObject private var familyControls: FamilyControlsService
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     // SharedDefaults is read at body evaluation time; refresh triggers @State change.
     @State private var store = SharedDefaults()
     @State private var nimbusScale: CGFloat = 1.0
+    @State private var revealed = false
     @State private var showingVerification = false
     @State private var showingEmergency = false
     @State private var showingAppSelection = false
@@ -99,12 +102,14 @@ struct TodayView: View {
                             #if DEBUG
                             .onLongPressGesture(minimumDuration: 2) { showingDebugMenu = true }
                             #endif
+                            .skyEntrance(0, revealed: revealed)
 
                         // Status banner (S-TODAY-02 variants)
                         statusBanner
                             .padding(.horizontal, SkyLayout.screenMargin)
                             .transition(.opacity.animation(SkyMotion.fadeEase))
                             .id(appState == .blocked || appState == .emergencyUnlocked ? "urgent" : "calm")
+                            .skyEntrance(1, revealed: revealed)
 
                         // Usage progress ring — tap opens the daily-limit editor (S-SET-02).
                         ZStack {
@@ -114,6 +119,8 @@ struct TodayView: View {
                             Text(ringLabel)
                                 .skyText(.caption, color: SkyColor.inkSoft)
                                 .multilineTextAlignment(.center)
+                                .contentTransition(.numericText())
+                                .animation(reduceMotion ? nil : SkyMotion.quickEase, value: ringLabel)
                         }
                         .contentShape(Rectangle())
                         .onTapGesture { showingLimitConfig = true }
@@ -122,13 +129,16 @@ struct TodayView: View {
                         .accessibilityHint("Opens the daily limit editor")
                         .accessibilityAddTraits(.isButton)
                         .accessibilityIdentifier("today.usageRing")
+                        .skyEntrance(2, revealed: revealed)
 
                         // Streak chip — live count from StreakManager
                         SkyStreakChip(days: streakManager.progress.currentStreak)
+                            .skyEntrance(3, revealed: revealed)
 
                         // Action buttons
                         actionButtons
                             .padding(.horizontal, SkyLayout.screenMargin)
+                            .skyEntrance(4, revealed: revealed)
 
                         Spacer(minLength: SkySpacing.s10)
                     }
@@ -142,6 +152,7 @@ struct TodayView: View {
         .onAppear {
             store = SharedDefaults()
             mascotManager.refreshState()
+            revealed = true
         }
         .fullScreenCover(isPresented: $showingVerification) {
             VerificationCoordinatorView {
@@ -346,6 +357,7 @@ struct TodayView: View {
     // MARK: - Micro-interaction
 
     private func squishNimbus() {
+        guard !reduceMotion else { return }
         nimbusScale = 0.88
         withAnimation(SkyMotion.squishSpring.delay(0.05)) {
             nimbusScale = 1.0

@@ -50,7 +50,11 @@ struct SkyStreakChip: View {
     var body: some View {
         HStack(spacing: SkySpacing.s2) {
             FlameIcon(color: SkyColor.coralStreak, size: 20)
-            Text("\(days) day streak").skyText(.headline, color: SkyColor.ink)
+            Text("\(days) day streak")
+                .skyText(.headline, color: SkyColor.ink)
+                // Rolls the digits when the count ticks up (S-VER-06); the
+                // caller's transaction decides whether the change animates.
+                .contentTransition(.numericText(value: Double(days)))
         }
         .padding(.vertical, 12)
         .padding(.horizontal, 14)

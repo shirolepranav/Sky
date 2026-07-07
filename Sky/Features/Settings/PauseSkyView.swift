@@ -86,6 +86,8 @@ struct PauseSkyView: View {
                     HStack {
                         Text(countdownLabel)
                             .skyText(.caption, color: SkyColor.inkSoft)
+                            .contentTransition(.numericText(countsDown: true))
+                            .animation(reduceMotion ? nil : SkyMotion.quickEase, value: countdown)
                         Spacer()
                         Text("\(reasonText.count) / 200")
                             .skyText(.caption, color: counterColor)
