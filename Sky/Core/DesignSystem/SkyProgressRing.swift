@@ -21,7 +21,7 @@ struct SkyProgressRing: View {
                 .trim(from: 0, to: max(0, min(1, progress)))
                 .stroke(accent, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
                 .rotationEffect(.degrees(-90))
-                .animation(.easeOut(duration: 0.4), value: progress)
+                .animation(SkyMotion.gentleEase, value: progress)
         }
         .padding(lineWidth / 2)
     }

@@ -56,7 +56,7 @@ struct LimitConfigurationView: View {
                             PerAppLimitsContent(viewModel: viewModel)
                         }
                     }
-                    .animation(.easeInOut(duration: 0.2), value: viewModel.limitMode)
+                    .animation(SkyMotion.quickEase, value: viewModel.limitMode)
                 }
 
                 Text("Limits reset at midnight, your local time.")

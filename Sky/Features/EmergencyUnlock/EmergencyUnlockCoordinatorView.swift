@@ -50,7 +50,7 @@ struct EmergencyUnlockCoordinatorView: View {
             switch step {
             case .intro:
                 EmergencyUnlockIntroView(
-                    onContinue:   { withAnimation(.easeInOut(duration: 0.25)) { step = .typedReason } },
+                    onContinue:   { withAnimation(SkyMotion.stepEase) { step = .typedReason } },
                     onTryOutside: { (onTryOutside ?? onDismiss)() }
                 )
                 .transition(.asymmetric(
@@ -79,7 +79,7 @@ struct EmergencyUnlockCoordinatorView: View {
                 ))
             }
         }
-        .animation(.easeInOut(duration: 0.25), value: step)
+        .animation(SkyMotion.stepEase, value: step)
     }
 
     // MARK: - Unlock logic
@@ -112,7 +112,7 @@ struct EmergencyUnlockCoordinatorView: View {
         mascotManager.handleEmergencyUnlock()
 
         // 5. Advance to result screen
-        withAnimation(.easeInOut(duration: 0.25)) {
+        withAnimation(SkyMotion.stepEase) {
             step = .result(prevStreak)
         }
     }

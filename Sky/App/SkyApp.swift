@@ -94,7 +94,7 @@ struct SkyApp: App {
                         .transition(.opacity)
                 }
             }
-            .animation(.easeInOut(duration: 0.25), value: isReady)
+            .animation(SkyMotion.stepEase, value: isReady)
             // Phase 16: apply the user's appearance choice app-wide. `nil` follows
             // the device; .light/.dark force the theme. Adaptive SkyColor tokens
             // resolve against whatever interface style this yields.

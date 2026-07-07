@@ -54,7 +54,7 @@ private struct ToastModifier: ViewModifier {
             .overlay(alignment: .bottom) {
                 if isPresented {
                     SkyToast(message: message, icon: icon) {
-                        withAnimation(.spring(response: 0.25)) {
+                        withAnimation(SkyMotion.toastSpring) {
                             isPresented = false
                         }
                         onComplete()
@@ -68,7 +68,7 @@ private struct ToastModifier: ViewModifier {
                     )
                 }
             }
-            .animation(.spring(response: 0.25), value: isPresented)
+            .animation(SkyMotion.toastSpring, value: isPresented)
     }
 }
 

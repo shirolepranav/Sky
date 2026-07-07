@@ -33,7 +33,7 @@ struct VerificationProcessingView: View {
                 Text(statusMessages[statusIndex])
                     .skyText(.titleM)
                     .multilineTextAlignment(.center)
-                    .animation(.easeInOut(duration: 0.3), value: statusIndex)
+                    .animation(SkyMotion.fadeEase, value: statusIndex)
                     .transition(.opacity)
                     .id(statusIndex)
 

@@ -30,29 +30,23 @@ The original design handoff (HTML/JS prototypes from claude.ai/design) lives in
 
 ## Current state
 
-Built so far (**Roadmap Phase 1 — Design System & Mascot**):
+**All 16 roadmap phases are built** (through Phase 16 — Launch Readiness & Dark
+Mode). The layout follows `Sky_Technical_Spec.md §5`:
 
-```
-Sky/
-├── App/
-│   ├── SkyApp.swift                       // @main — launches DesignSystemPreviewScreen for now
-│   └── AppBranding.swift                  // PRD §11 swappable constants
-├── Core/DesignSystem/
-│   ├── ColorTokens.swift                  // Color(hex:) + SkyColor (all tokens)
-│   ├── Typography.swift                   // SkyTextStyle + .skyText(_:)
-│   ├── Spacing.swift                      // SkySpacing / SkyRadius / SkyLayout
-│   ├── Buttons.swift                      // SkyPrimaryButton / Secondary / Coral
-│   ├── Cards.swift                        // SkyCard / SkyStatusPill / SkyStreakChip
-│   ├── SkyIcons.swift                     // SunIcon / FlameIcon
-│   └── SkyProgressRing.swift
-├── Features/Mascot/
-│   └── NimbusView.swift                   // MascotState (5) + NimbusView (Canvas) + NimbusMini
-└── DesignSystemPreviewScreen.swift        // visual QA showcase (debug surface)
-```
+- `Sky/App/` — `SkyApp.swift` (@main, routing via `AppCoordinator`),
+  `AppBranding.swift` (PRD §11 swappable constants).
+- `Sky/Core/` — `DesignSystem/` (color/type/spacing/motion tokens, buttons,
+  cards, icons, ring, toast), plus `Notifications/`, `ScreenTime/`, `Storage/`,
+  `Subscription/`.
+- `Sky/Features/` — AppSelection, Celebrations, EmergencyUnlock,
+  LimitConfiguration, Mascot (`NimbusView.swift` + `NimbusRendering.swift`),
+  Onboarding, Paywall, Permissions, Settings, Streaks, Today, Verification.
+- Extension targets: `DeviceActivityMonitorExtension/`,
+  `ShieldActionExtension/`, `ShieldConfigurationExtension/`.
+- Tests: `SkyTests/` (unit), `SkyUITests/`.
 
-**Not built yet:** everything else (onboarding, Family Controls, blocking,
-verification pipeline, streaks, paywall, settings, the 3 extension targets). See
-the Roadmap for order. The target full structure is in `Sky_Technical_Spec.md §5`.
+Keep this section a short orientation only — the folder tree is the source of
+truth. Per-phase checklists live in `PHASE_*_CHECKLIST.md`.
 
 ## Build & verify
 
@@ -72,8 +66,12 @@ tmp=$(mktemp -d)
 for f in $(find Sky -name '*.swift'); do
   awk '/^#Preview/{exit}{print}' "$f" > "$tmp/$(echo "$f"|tr '/' '_')"
 done
-xcrun --sdk macosx swiftc -typecheck -target arm64-apple-macosx13.0 "$tmp"/*.swift
+xcrun --sdk macosx swiftc -typecheck -target arm64-apple-macosx14.0 "$tmp"/*.swift
 ```
+
+(macOS 14 ≙ iOS 17, the app's minimum target — needed for `keyframeAnimator`,
+`phaseAnimator`, and `numericText(value:)`. Confirm the SDK with
+`xcrun --sdk macosx --show-sdk-version` ≥ 14.0.)
 
 Exit 0 = clean. This validates Swift/type correctness only — not iOS layout or
 runtime behavior. Always note this limitation when reporting "verified."

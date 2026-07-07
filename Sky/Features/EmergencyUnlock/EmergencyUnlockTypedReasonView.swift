@@ -68,12 +68,7 @@ struct EmergencyUnlockTypedReasonView: View {
                         #endif
                     }
                     .offset(x: shaking ? 6 : 0)
-                    .animation(
-                        reduceMotion
-                            ? nil
-                            : .linear(duration: 0.05).repeatCount(4, autoreverses: true),
-                        value: shaking
-                    )
+                    .animation(reduceMotion ? nil : SkyMotion.shake, value: shaking)
                     .padding(.horizontal, SkyLayout.screenMargin)
 
                     // Character counter + countdown row

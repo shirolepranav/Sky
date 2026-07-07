@@ -181,7 +181,7 @@ struct StreaksView: View {
         let target = progress.currentStreak
         guard target > 0 else { return }
         streakDisplayed = 0
-        withAnimation(.easeOut(duration: 1.0)) {
+        withAnimation(.easeOut(duration: SkyMotion.countUp)) {
             streakDisplayed = target
         }
     }

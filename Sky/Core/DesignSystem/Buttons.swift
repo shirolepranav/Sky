@@ -33,7 +33,7 @@ struct SkyPrimaryButtonStyle: ButtonStyle {
                 .offset(y: configuration.isPressed ? 2 : 0)
                 .shadow(color: lifted ? SkyColor.mossGreenActionDeep : .clear,
                         radius: 0, x: 0, y: lifted ? 2 : 0)
-                .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
+                .animation(SkyMotion.pressEase, value: configuration.isPressed)
         }
     }
 }
@@ -72,7 +72,7 @@ struct SkyCoralButtonStyle: ButtonStyle {
             .offset(y: configuration.isPressed ? 2 : 0)
             .shadow(color: configuration.isPressed ? .clear : SkyColor.coralStreakDeep,
                     radius: 0, x: 0, y: configuration.isPressed ? 0 : 2)
-            .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
+            .animation(SkyMotion.pressEase, value: configuration.isPressed)
     }
 }
 

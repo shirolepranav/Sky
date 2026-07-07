@@ -91,7 +91,7 @@ struct TodayView: View {
                         let heroSize = min(geo.size.height * 0.35, 220)
                         NimbusView(state: mascotManager.state, size: heroSize)
                             .scaleEffect(nimbusScale)
-                            .animation(.spring(response: 0.25, dampingFraction: 0.5), value: nimbusScale)
+                            .animation(SkyMotion.squishSpring, value: nimbusScale)
                             .padding(.top, SkySpacing.s8)
                             .accessibilityLabel(mascotManager.state.accessibilityDescription)
                             .onTapGesture { squishNimbus() }
@@ -103,7 +103,7 @@ struct TodayView: View {
                         // Status banner (S-TODAY-02 variants)
                         statusBanner
                             .padding(.horizontal, SkyLayout.screenMargin)
-                            .transition(.opacity.animation(.easeInOut(duration: 0.3)))
+                            .transition(.opacity.animation(SkyMotion.fadeEase))
                             .id(appState == .blocked || appState == .emergencyUnlocked ? "urgent" : "calm")
 
                         // Usage progress ring — tap opens the daily-limit editor (S-SET-02).
@@ -347,7 +347,7 @@ struct TodayView: View {
 
     private func squishNimbus() {
         nimbusScale = 0.88
-        withAnimation(.spring(response: 0.3, dampingFraction: 0.5).delay(0.05)) {
+        withAnimation(SkyMotion.squishSpring.delay(0.05)) {
             nimbusScale = 1.0
         }
     }

@@ -53,7 +53,7 @@ struct VideoRecordingView: View {
                 // Mid: prompt card
                 promptCard
                     .padding(.horizontal, SkySpacing.s6)
-                    .animation(.easeInOut(duration: 0.4), value: vm.currentPromptIndex)
+                    .animation(SkyMotion.gentleEase, value: vm.currentPromptIndex)
                     .transition(.opacity)
 
                 Spacer()
@@ -152,8 +152,7 @@ struct VideoRecordingView: View {
         Circle()
             .fill(SkyColor.coralStreak)
             .frame(width: 10, height: 10)
-            .opacity(reduceMotion ? 1 : 1)
-            .modifier(PulsingModifier(active: !reduceMotion))
+            .skyPulsing(active: !reduceMotion)
     }
 
     private var cancelButton: some View {
@@ -206,35 +205,6 @@ private struct CameraPreviewView: UIViewRepresentable {
     }
 }
 #endif
-
-// MARK: - Animation helpers
-
-private struct ReduceMotionTransaction: ViewModifier {
-    let reduce: Bool
-    func body(content: Content) -> some View {
-        if reduce {
-            content.transaction { $0.animation = nil }
-        } else {
-            content
-        }
-    }
-}
-
-private struct PulsingModifier: ViewModifier {
-    let active: Bool
-    @State private var opacity: Double = 1.0
-
-    func body(content: Content) -> some View {
-        content
-            .opacity(active ? opacity : 1)
-            .onAppear {
-                guard active else { return }
-                withAnimation(.easeInOut(duration: 0.6).repeatForever(autoreverses: true)) {
-                    opacity = 0.3
-                }
-            }
-    }
-}
 
 #Preview("S-VER-03") {
     // Static preview without real camera — shows overlay layout
