@@ -78,11 +78,11 @@ struct VerificationSuccessView: View {
             displayedStreak = currentStreak
         }
 
-        // 4. Transition Nimbus rainbow → sunny after 5s
+        // 4. Transition Nimbus rainbow → sunny after 5s. NimbusView animates
+        // the state change itself (0.5s morph; 0.2s crossfade under Reduce
+        // Motion) — no withAnimation needed here.
         try? await Task.sleep(for: .seconds(5))
-        withAnimation(.easeInOut(duration: 0.5)) {
-            mascotState = .sunny
-        }
+        mascotState = .sunny
     }
 }
 

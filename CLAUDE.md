@@ -114,8 +114,9 @@ kind. Exact strings for built screens live in `Sky_App_Workflow.md §3.3`.
 - **SwiftUI-first.** UIKit interop only where unavoidable (paste-blocking text
   field, shield extensions) — see Tech Spec.
 - **`#Preview` on every component**, including light + dark where relevant.
-- **Mascot is one replaceable component** (`NimbusView.swift`). Swapping it (e.g.
-  a Lottie file in v1.1+) must touch only that file.
+- **Mascot is one replaceable component** (`NimbusView.swift` +
+  `NimbusRendering.swift`). Swapping it (e.g. a Lottie file in v1.1+) must touch
+  only those two files.
 - **Branding is swappable from one file** (`AppBranding.swift`). Renaming the app
   or mascot edits only that file.
 - Reference screens by their workflow ID (e.g. `S-TODAY-01`) in comments and PRs.
