@@ -116,10 +116,12 @@ struct VideoRecordingView: View {
         }
         // VoiceOver prompt announcements
         .onChange(of: vm.currentPromptIndex) { _, _ in
+            #if os(iOS)
             UIAccessibility.post(
                 notification: .announcement,
                 argument: vm.currentPromptText
             )
+            #endif
         }
         .task { await vm.startSession() }
         .onDisappear { vm.stopSession() }

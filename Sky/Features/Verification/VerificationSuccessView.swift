@@ -13,6 +13,7 @@ struct VerificationSuccessView: View {
     @State private var mascotState: MascotState = .rainbow
     @State private var displayedStreak: Int = 0
     @State private var showUnlockError: Bool = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         ZStack {
@@ -22,6 +23,12 @@ struct VerificationSuccessView: View {
                 endPoint: .bottom
             )
             .ignoresSafeArea()
+
+            // Spec: "Confetti optional (Reduce Motion off)" — S-VER-06.
+            if !reduceMotion {
+                SkyConfettiBurst()
+                    .ignoresSafeArea()
+            }
 
             VStack(spacing: SkySpacing.s5) {
                 Spacer()
@@ -55,10 +62,12 @@ struct VerificationSuccessView: View {
         }
         .accessibilityIdentifier("verification.success")
         .onAppear {
+            #if os(iOS)
             UIAccessibility.post(
                 notification: .announcement,
                 argument: "Verified. Apps are open until midnight."
             )
+            #endif
         }
         .task { await performUnlock() }
     }
@@ -74,7 +83,7 @@ struct VerificationSuccessView: View {
 
         // 3. Animate streak chip after short delay
         try? await Task.sleep(for: .milliseconds(500))
-        withAnimation(.spring(response: 0.6)) {
+        withAnimation(reduceMotion ? nil : SkyMotion.chipSpring) {
             displayedStreak = currentStreak
         }
 
