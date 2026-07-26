@@ -108,9 +108,18 @@ struct StreaksView: View {
     @ViewBuilder
     private var statCards: some View {
         HStack(spacing: SkySpacing.s3) {
-            StatCardView(label: "Longest", value: "\(progress.longestStreak)")
-            StatCardView(label: "Total verified", value: "\(progress.totalVerifications)")
-            StatCardView(label: "Emergency unlocks", value: "\(progress.totalEmergencyUnlocks)")
+            StatCardView(
+                icon: "flame.fill", iconColor: SkyColor.coralStreak,
+                label: "Longest", value: "\(progress.longestStreak)", unit: "days"
+            )
+            StatCardView(
+                icon: "checkmark.seal.fill", iconColor: SkyColor.sunYellow,
+                label: "Total", value: "\(progress.totalVerifications)", unit: "verified"
+            )
+            StatCardView(
+                icon: "lock.open.fill", iconColor: SkyColor.cloudGrey,
+                label: "Emergency", value: "\(progress.totalEmergencyUnlocks)", unit: "unlocks"
+            )
         }
         .padding(.horizontal, SkyLayout.screenMargin)
     }
@@ -201,22 +210,39 @@ struct StreaksView: View {
 // MARK: - Stat card component
 
 private struct StatCardView: View {
+    let icon: String
+    let iconColor: Color
     let label: String
     let value: String
+    let unit: String
 
     var body: some View {
-        SkyCard {
-            VStack(spacing: SkySpacing.s1) {
-                Text(value)
-                    .skyText(.titleM, color: SkyColor.ink)
-                Text(label)
-                    .skyText(.caption, color: SkyColor.inkMuted)
-                    .multilineTextAlignment(.center)
+        SkyCard(padding: SkySpacing.s4) {
+            VStack(alignment: .leading, spacing: SkySpacing.s1) {
+                HStack(spacing: SkySpacing.s1) {
+                    Image(systemName: icon)
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(iconColor)
+                    Text(label.uppercased())
+                        .skyText(.tabLabel, color: SkyColor.inkMuted)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.85)
+                }
+                HStack(alignment: .lastTextBaseline, spacing: SkySpacing.s1) {
+                    Text(value)
+                        .skyText(.titleM, color: SkyColor.ink)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.85)
+                    Text(unit)
+                        .skyText(.tabLabel, color: SkyColor.inkSoft)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.85)
+                }
             }
-            .frame(maxWidth: .infinity)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(label): \(value)")
+        .accessibilityLabel("\(label): \(value) \(unit)")
     }
 }
 

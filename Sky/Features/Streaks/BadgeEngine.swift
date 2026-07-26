@@ -63,12 +63,12 @@ extension BadgeID {
     var symbolName: String {
         switch self {
         case .firstLight: return "sun.max.fill"
-        case .cumulus:    return "flame.fill"
-        case .stratus:    return "flame.fill"
-        case .cirrus:     return "flame.fill"
-        case .sunburst:   return "flame.fill"
-        case .clearSky:   return "flame.fill"
-        case .boundless:  return "flame.fill"
+        case .cumulus:    return "cloud.fill"
+        case .stratus:    return "cloud.fog.fill"
+        case .cirrus:     return "wind"
+        case .sunburst:   return "cloud.sun.fill"
+        case .clearSky:   return "sun.horizon.fill"
+        case .boundless:  return "infinity"
         case .earlyBird:  return "sunrise.fill"
         case .wanderer:   return "figure.walk"
         case .comeback:   return "arrow.turn.up.right"

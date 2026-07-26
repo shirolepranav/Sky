@@ -13,13 +13,14 @@ struct BadgeArtView: View {
 
     private var fillColor: Color {
         switch badge {
-        case .firstLight:           return SkyColor.sunYellow
+        case .firstLight:              return SkyColor.sunYellow
         case .cumulus, .stratus,
-             .cirrus, .sunburst,
-             .clearSky, .boundless: return SkyColor.coralStreak
-        case .earlyBird:            return SkyColor.sunYellow
-        case .wanderer:             return SkyColor.mossGreen
-        case .comeback:             return SkyColor.primarySky
+             .cirrus, .clearSky:       return SkyColor.primarySky
+        case .sunburst:                return SkyColor.sunYellow
+        case .boundless:               return SkyColor.coralStreak
+        case .earlyBird:               return SkyColor.sunYellow
+        case .wanderer:                return SkyColor.mossGreen
+        case .comeback:                return SkyColor.coralStreak
         }
     }
 
