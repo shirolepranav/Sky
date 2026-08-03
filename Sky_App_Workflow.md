@@ -40,7 +40,7 @@ This document enumerates **every screen, every component, every state, every int
 - **Day** — a local-time 24-hour window starting at 00:00. All resets, streaks, and budgets pivot on local midnight.
 - **Reset token** — a `YYYY-MM-DD` string written at midnight to invalidate yesterday's flags.
 - **App Group** — `group.com.shirolepranav.sky`, shared by main app + 3 extensions.
-- **Pro** — the paid tier (any of Monthly, Annual, Lifetime, or Founder's Lifetime).
+- **Pro** — the paid unlock. One non-consumable, one-time purchase (`com.sky.pro.lifetime`). There are no tiers.
 
 ---
 
@@ -800,43 +800,47 @@ This is not a separate screen but the catalog of banner states that live inside 
 
 ### S-STREAK-01 · Streaks Tab Home · [Phase 12]
 
-**Purpose.** Show current/longest streak, total verifications, and entry points into badges and insights.
+**Purpose.** Show the current streak in an emotionally legible way, give the user something concrete to aim at next, and act as the app's share/growth surface.
 
 **Entry points.** ← `S-TAB-00` tap.
 
-**Exit points.** → `S-STREAK-02` (badges grid) · → `S-STREAK-04` (weekly insights `[Pro]`) · pull to refresh from CloudKit.
+**Exit points.** → `S-STREAK-02` (badges grid) · → `S-STREAK-04` (weekly insights `[Pro]`) · → `S-STREAK-05` (share card) · pull to refresh from CloudKit.
 
 **Layout.** Scrollable:
-1. Big current-streak number with flame icon (coral)
-2. Stat row: "Longest" / "Total verified" / "Emergency unlocks"
-3. "Badges" header + horizontal scroll preview of 4 most recent badges (locked greyed) + "See all"
-4. "This week" header + insights card `[Pro]` or upgrade prompt `[Free]`
+1. **Hero card** — Nimbus (state derived from the streak), the big current-streak number with flame icon (coral), and a **last-seven-days dot strip** beneath it.
+2. **Next-milestone card** — "N days to <badge>" with a progress bar and the greyed badge mark. Hidden once every milestone is passed.
+3. Stat row: "Longest" / "Total verified" / "Emergency unlocks"
+4. "Badges" header + horizontal preview of 4 badges + "See all"
+5. "This week" insights card `[Pro]` or upgrade prompt `[Free]`
 
-**Components.** Large numeric `Text`, three `SkyCard` stat tiles, `LazyHGrid` for badge preview, `SkyCard` insights.
+**Components.** `SkyCard` hero containing `NimbusView` + day strip, `SkyCard` milestone bar, three `SkyCard` stat tiles, horizontal badge scroller, `SkyCard` insights. Toolbar share button (`square.and.arrow.up`).
 
 **Copy.**
 - Section title: **"Streaks"**
 - Current streak: dynamic number + *"days"*.
-- Stat tile labels: **"Longest"**, **"Total verified"**, **"Emergency unlocks"**.
-- Badges header: **"Badges"** with `SkySecondaryButton` "See all".
-- Free insights upsell: *"Weekly insights help you spot patterns. Available in Sky Pro."* + button "See Pro".
+- Milestone: *"6 days to Cirrus"*.
+- Stat tile labels: **"Longest"**, **"Total"**, **"Emergency"**.
+- Badges header: **"Badges"** + "See all".
+- Free insights upsell: *"Weekly insights help you spot patterns. Available in Sky Pro."*
+- Pro insights: *"Your top emergency unlock reasons."*
 
 **States.**
-- New user (no streak yet): current = 0, show gentle prompt "Your first verification will start your streak."
-- Active streak.
-- Streak just broken: show breakdown context line *"Streak ended yesterday. Today's a new start."*
+- New user (never verified): Nimbus cloudy + *"Your first verification starts your streak."*
+- Active streak: Nimbus sunny, or rainbow when sitting exactly on a milestone.
+- Streak broken (has verified before, streak now 0): Nimbus cloudy + *"Streak ended. Today's a new start."* + *"Your best was N days."*
+  ⚠️ Distinguish "broken" from "new" by `totalVerifications > 0` — showing the first-time copy to a returning user is a bug.
 
-**Interactions.** Tap badges preview row → `S-STREAK-02`. Tap "See Pro" → `S-PAY-01`. Pull to refresh → re-fetch `UserProgress`.
+**Interactions.** Tap badges preview row → `S-STREAK-02`. Tap insights → `S-STREAK-04` or `S-PAY-05`. Tap share → `S-STREAK-05`. Pull to refresh → re-fetch `UserProgress`.
 
-**Transitions.** Numbers tick up on first appearance after a verification (1s ease-out).
+**Transitions.** Numbers tick up on first appearance after a verification (1s ease-out); sections stagger in via `.skyEntrance`.
 
-**Edge cases.** CloudKit offline: show local cache + sync indicator.
+**Edge cases.** CloudKit offline: show local cache + sync indicator. Share button hidden entirely when `totalVerifications == 0` — there is nothing to share yet.
 
-**Accessibility.** Numbers read with units ("five days"). Tiles are individually focusable.
+**Accessibility.** Numbers read with units ("five days"). The day strip is one element ("Last seven days: 5 verified"). Tiles are individually focusable.
 
-**Persistence.** Reads `UserProgress` from CloudKit/cache.
+**Persistence.** Reads `UserProgress` from CloudKit/cache. All derived values (hero state, milestone progress, day strip) come from `StreakInsights` — **no new persisted fields**; the day strip is computed from the `currentStreak` window ending at `lastVerificationDate`.
 
-**Gating.** Weekly insights card is `[Pro only]`.
+**Gating.** Weekly insights card is `[Pro only]`. Sharing is **not** gated — it is the app's only organic growth surface.
 
 ---
 
@@ -945,6 +949,38 @@ This is not a separate screen but the catalog of banner states that live inside 
 
 ---
 
+### S-STREAK-05 · Share Your Streak · [Phase 12]
+
+**Purpose.** Let the user export a good-looking card of their streak. This is the app's only growth surface — the PRD names organic sharing (TikTok/Reddit) as the acquisition model (§2, §6).
+
+**Entry points.** ← `S-STREAK-01` toolbar share button.
+
+**Exit points.** System share sheet · "Done" → ⤴ `S-STREAK-01`.
+
+**Layout.** Sheet: title "Share your streak", a live preview of the card, then a full-width **"Share"** button.
+
+**Card contents (4:5, 320×400pt rendered at 3×).** Nimbus (static pose) · big streak number · "days outside in a row" · Longest / Verified columns · up to three earned badge marks · the `Sky` wordmark and *"Go outside to unlock your apps."*
+
+**Deliberately excluded from the card.**
+- **Emergency-unlock count** — broadcasting it is guilt-shaped, and the brand voice rule is that Sky is never punishing (PRD §7).
+- **Anything from `verificationLocations`** — those are rounded GPS strings and stay on-device (privacy invariants). The Wanderer *badge* is fine; the coordinates are not.
+
+**States.** Active streak (headline = current streak) · lapsed streak (headline = longest, captioned *"my best streak"*) · render failure (fallback message, no Share button).
+
+**Interactions.** `ImageRenderer` → `UIImage` → shared as a `Transferable` `Image`. Nothing is written to disk.
+
+**Edge cases.**
+- The card renders at a **pinned** `dynamicTypeSize` and `colorScheme` — `.skyText` scales via `@ScaledMetric`, so without pinning the export would resize with the reader's text setting and overflow the fixed frame, and adaptive color tokens would flip in dark mode.
+- "Save Image" from the share sheet needs `NSPhotoLibraryAddUsageDescription` in `Info.plist`.
+
+**Accessibility.** The preview is one element labelled with the streak summary.
+
+**Persistence.** Reads `UserProgress`. Writes nothing.
+
+**Gating.** None — available to Free and Pro alike. Hidden only when the user has never verified.
+
+---
+
 ### S-SET-01 · Settings Root · [Phase 15]
 
 **Purpose.** Central hub for configuration.
@@ -974,8 +1010,7 @@ This is not a separate screen but the catalog of banner states that live inside 
   - "iCloud sync status" → `S-SET-06`
   - Sign in with Apple status
 - **Subscription**
-  - Current tier (e.g. "Pro Annual · Renews 2026-12-01")
-  - "Manage in App Store" (deep link)
+  - Current state ("Sky Pro" or "Sky Free")
   - "Restore purchases"
 - **About**
   - "Privacy policy" → opens browser
@@ -1183,16 +1218,14 @@ This is not a separate screen but the catalog of banner states that live inside 
 
 **Copy.**
 - Free: header *"Sky Free"*, body *"Up to 2 apps, combined limits only."*, button **"Upgrade to Pro"**.
-- Pro Monthly: *"Sky Pro · Monthly"* + renew date + "Manage in App Store".
-- Pro Annual: *"Sky Pro · Annual"* + renew date + "Manage in App Store".
-- Lifetime: *"Sky Pro · Lifetime"* + *"Thanks for going all in."* + Restore.
-- Founder: *"Sky Pro · Founder's Lifetime"* + special art + Restore.
+- Pro: *"Sky Pro"* + *"Lifetime access. Thanks for going all in."* + Restore.
+- Footer under Restore: *"Sky Pro is a one-time purchase, not a subscription. Restoring re-applies it on a new device."*
 
 **States.** As above.
 
-**Interactions.** Manage → `URL(string: "https://apps.apple.com/account/subscriptions")!`. Restore → calls `StoreKitService.restore()`, presents result sheet.
+**Interactions.** Restore → calls `StoreKitService.restorePurchases()`, presents result sheet. There is no "Manage in App Store" row — a non-consumable has no subscription to manage.
 
-**Edge cases.** Trial active: show "Free trial — renews <date>". Cancellation pending: "Cancels <date>".
+**Edge cases.** None involving renewal — the purchase never expires. A refunded/revoked purchase silently downgrades to Free on the next entitlement refresh.
 
 **Accessibility.** Standard.
 
@@ -1788,81 +1821,50 @@ Same structure as `S-SHIELD-02`. Target: `S-EMG-01`.
 
 ### S-PAY-01 · Paywall Main · [Phase 14]
 
-**Purpose.** Convert free users to Pro with the four tiers laid out clearly.
+**Purpose.** Convert free users to Pro with a single, unambiguous one-time price.
 
 **Entry points.** ← First successful verification (one-shot upsell after `S-VER-06`'s "Done") · ← `S-PAY-05` (any in-context gate) · ← `S-SET-07` Upgrade · ← `S-STREAK-01` Pro CTA.
 
-**Exit points.** Purchase success → `S-PAY-04` (trial) or close + entitlement refresh. Restore → `S-PAY-03`. Close (X) → ⤴ caller.
+**Exit points.** Purchase success → close + entitlement refresh. Restore → `S-PAY-03`. Close (X) → ⤴ caller.
 
 **Layout.** Scrollable:
 1. Close button (X top-right) — visible but subtle.
 2. Hero: Nimbus rainbow + title + value props (3 bulleted features).
-3. Three primary tier cards in a row: Monthly · Annual (centered, larger, "Best Value" ribbon) · Lifetime.
-4. Founder's Lifetime card (separate row, with seats counter) — IF available.
-5. Free-vs-Pro comparison list (3 rows minimum).
-6. Restore purchases button (subtle).
-7. Legal microcopy footer.
+3. One price card — the whole offer. No tier row, no ribbon, no trial badge.
+4. Free-vs-Pro comparison list (3 rows minimum).
+5. Restore purchases button (subtle).
+6. Legal microcopy footer.
 
-**Components.** Close button, hero stack, three `TierCard`s, optional `FounderCard`, comparison `SkyCard`, restore button, footer text.
+**Components.** Close button, hero stack, one `ProPriceCard`, comparison `SkyCard`, restore button, footer text.
 
 **Copy.**
 - Hero title: **"Sky Pro"**
-- Hero subtitle: *"Go further than the free tier."*
+- Hero subtitle: *"One purchase. Yours forever."*
 - Bullets: *"Unlimited apps."* · *"Per-app limits."* · *"Weekly insights & all badges."*
-- Monthly: *"$4.99 / month"*
-- Annual: *"$29.99 / year"* + ribbon *"Best Value"* + small *"7-day free trial"*.
-- Lifetime: *"$79 once"*
-- Founder: *"Founder's Lifetime — $39 · only N seats left"* (N dynamic, see §3 for seat-count strategy).
+- Price card: overline **"LIFETIME"** · price *"$19.99"* (from StoreKit; `FallbackPricing` when metadata is absent) · *"Pay once. No subscription, ever."*
 - Comparison row examples: *"Apps you can manage — Free: 2 · Pro: Unlimited"*, *"Per-app limits — Free: — · Pro: ✓"*, *"All 10 badges — Free: 3 · Pro: 10"*.
 - Restore: **"Restore purchases"**
-- Footer: *"Subscriptions auto-renew. Cancel anytime in App Store settings. Terms · Privacy."*
+- Footer: *"One-time purchase. Not a subscription. Terms · Privacy."*
+  ⚠️ The footer must never claim auto-renewal — Sky Pro is a non-consumable, so that copy would be false and is an App Review risk.
 
 **States.**
-- Default · Loading (StoreKit fetching products — show skeleton cards) · Purchase in progress (one tier shows spinner; others disabled) · Already Pro (entire paywall hidden — replaced with "You're already on Pro" with manage link).
-- Founder availability: visible with seat count · sold out (replaced with `S-PAY-02` content).
+- Default · Loading (StoreKit fetching — price card shows a spinner) · Purchase in progress (card disabled with overlay spinner) · Already Pro (entire paywall replaced with "You're already on Pro"; **no** manage-subscription link, since there is no subscription to manage).
 
-**Interactions.** Tap tier card → call `StoreKitService.purchase(_:)` → success/fail handled.
+**Interactions.** Tap price card → `StoreKitService.purchase(_:)` → success/fail handled.
 
 **Transitions.** Slide-up cover.
 
 **Edge cases.**
 - Network unavailable: show error card "Couldn't load prices. Try again." with retry button.
+- StoreKit returns no products without throwing: stop the spinner and fall back to `FallbackPricing` rather than hanging.
 - StoreKit denies purchase: toast "Purchase couldn't complete. Try again."
-- Subscription pending family approval (Ask to Buy): show "Waiting for approval" state.
+- Purchase pending family approval (Ask to Buy): show "Waiting for approval" state.
 
-**Accessibility.** Each tier is a single accessible element with `accessibilityLabel` summarizing price + tier name.
+**Accessibility.** The price card is a single accessible element labelled with the price and "One-time purchase."
 
 **Persistence.** Reads `StoreKitService.products` and `isPro`. Writes nothing directly; entitlement refresh after purchase.
 
 **Gating.** N/A on display.
-
----
-
-### S-PAY-02 · Founder's Lifetime — Sold Out Variant · [Phase 14]
-
-**Purpose.** Communicate the cap is hit; do not hide tiers entirely.
-
-**Entry points.** Rendered inside `S-PAY-01` when seats counter reaches 0.
-
-**Exit points.** Same as `S-PAY-01`.
-
-**Layout.** Same as `S-PAY-01` but with a non-tappable card explaining the founder tier sold out.
-
-**Copy.**
-- Card title: **"Founder's seats are gone."**
-- Body: *"All 500 founder spots have been claimed. The Lifetime tier is still available."*
-
-**States.** Single.
-
-**Interactions.** None.
-
-**Edge cases.** Counter is approximate (App Store availability is the source of truth) — if counter says 1 left but App Store rejects the purchase as unavailable, show toast "Just missed it — Founder is sold out now" and update counter to 0.
-
-**Accessibility.** Standard.
-
-**Persistence.** Seat count cached locally (refreshed from a static plist updated via App Store Connect metadata).
-
-**Gating.** N/A.
 
 ---
 
@@ -1892,39 +1894,6 @@ Same structure as `S-SHIELD-02`. Target: `S-EMG-01`.
 **Accessibility.** Standard.
 
 **Persistence.** None.
-
-**Gating.** N/A.
-
----
-
-### S-PAY-04 · Trial Start Confirmation · [Phase 14]
-
-**Purpose.** Confirm a 7-day free trial began.
-
-**Entry points.** ← `S-PAY-01` after Annual purchase success with active trial.
-
-**Exit points.** Done → ⤴ tab bar.
-
-**Layout.** Sunny Nimbus, title, body, button.
-
-**Components.** Mascot, title, body, button.
-
-**Copy.**
-- Title: **"7 days free, on us."**
-- Body: *"You're on Sky Pro Annual. Your trial ends <date>. You can cancel anytime in App Store settings."*
-- Button: **"Got it"**
-
-**States.** Single.
-
-**Interactions.** Done dismisses.
-
-**Transitions.** Standard.
-
-**Edge cases.** Trial revoked (system reasons): downgrade silently and show toast on next launch "Your trial couldn't start — please try again."
-
-**Accessibility.** Standard.
-
-**Persistence.** Entitlement reflected via `StoreKitService.isPro`.
 
 **Gating.** N/A.
 
@@ -2164,7 +2133,7 @@ Steps 1–9 same as J-03.
 ❶ User on Free, navigates to `S-CFG-03` and taps "Per app" segment.
 ❷ Segment reverts; `S-PAY-05` slides up.
 ❸ Tap "See Pro" → `S-PAY-01`.
-❹ Branch A — purchase Annual: tap card → StoreKit sheet → success → `S-PAY-04` (trial confirm). `isPro=true`. Dismiss returns to `S-CFG-03` with Per-app now selectable.
+❹ Branch A — purchase: tap the price card → StoreKit sheet → success → paywall closes, `isPro=true`. Returns to `S-CFG-03` with Per-app now selectable.
 ❺ Branch B — close: `S-PAY-05` dismisses; user stays in Combined mode.
 
 Same pattern for:
@@ -2175,15 +2144,11 @@ Same pattern for:
 
 ---
 
-## J-09 · Purchasing Each Tier
+## J-09 · Purchasing Sky Pro
 
-**Monthly.** `S-PAY-01` → tap Monthly card → StoreKit sheet → success → close paywall → `isPro=true` (no `S-PAY-04`).
+`S-PAY-01` → tap the price card → StoreKit sheet → success → paywall closes → `isPro=true`. `S-SET-07` then reads "Sky Pro".
 
-**Annual w/ trial.** Same path; `S-PAY-04` follows.
-
-**Lifetime.** `S-PAY-01` → tap Lifetime → StoreKit sheet → success → close paywall → `isPro=true`. `S-SET-07` will read "Sky Pro · Lifetime".
-
-**Founder's Lifetime.** Same as Lifetime but only available while seats remain. Seat counter (cached) decrements optimistically on success; refreshes from plist nightly. If App Store rejects (sold out), recover gracefully.
+There is one product and one path. Ask-to-Buy returns `.pending` and leaves the paywall open; the transaction listener flips `isPro` if the purchase is later approved.
 
 ---
 
@@ -2326,8 +2291,8 @@ Transitions:
 | Weekly insights | `S-STREAK-01`, `S-STREAK-04` | Gate prompt | Available |
 | Streak warning notification | `S-SET-04` | Disabled with `[Pro]` chip | Available |
 | All 10 badges | `S-STREAK-02` | Earn-by-action no restriction *(confirm)* | Same |
-| Founder's Lifetime tier | `S-PAY-01` | Available while seats remain | n/a (already Pro) |
 | Custom mascot reactions (full 5 states) | `S-TODAY-01`, mascot system | All states usable in v1.0 | Same — no Free restriction in v1.0 |
+| Share your streak | `S-STREAK-01`, `S-STREAK-05` | **Available** | Same — deliberately ungated |
 
 *Note: PRD §4.9 lists "all badges, all mascot states, full insights" as Pro features. v1.0 implementation choice: badges that are inherently locked by behavior (`Boundless`, `Wanderer`) display to free users but only Pro users unlock the special UI. **Confirm with product before Phase 12 ships.**
 
@@ -2386,8 +2351,7 @@ Treat this section as the authoritative source. When implementing a screen, lift
 | Phone call mid-record | AVCaptureSession interruption | `S-VER-08` |
 | App backgrounded mid-record | Scene phase change | `S-VER-08` |
 | Pause attempted twice in 7 days | `pauseStartedAt` check | `S-SET-03` alternate variant |
-| Founder seats sold out | App Store rejects purchase | `S-PAY-02` variant, refresh counter |
-| Trial revoked | StoreKit transaction reversed | Silent downgrade, toast on next launch |
+| Purchase refunded/revoked | StoreKit transaction reversed | Silent downgrade on next entitlement refresh |
 
 ## 3.5 Deep Link Routing Table
 
@@ -2479,9 +2443,9 @@ When building Phase N, pull only these screens from Part 1 and these journeys fr
 | 9 | Vision Outdoor Classification | (back-end for `S-VER-05`) | — |
 | 10 | Verification Decision + Unlock | `S-VER-05..07` | J-03, J-05 |
 | 11 | Mascot Reactions + Today | `S-TODAY-01`, `S-TODAY-02`, `S-TAB-00` (Today portion), `S-CEL-02` | J-02, J-03 |
-| 12 | Daily Reset, Streaks, Badges | `S-STREAK-01..03`, `S-CEL-01`, CloudKit sync | J-06, J-07, J-14 |
+| 12 | Daily Reset, Streaks, Badges | `S-STREAK-01..03`, `S-STREAK-05`, `S-CEL-01`, CloudKit sync | J-06, J-07, J-14 |
 | 13 | Emergency Unlock | `S-EMG-01..03`, `S-STREAK-04` | J-04 |
-| 14 | StoreKit + Paywall | `S-PAY-01..05`, `S-SET-07` | J-08, J-09, J-10 |
+| 14 | StoreKit + Paywall | `S-PAY-01`, `S-PAY-03`, `S-PAY-05`, `S-SET-07` | J-08, J-09, J-10 |
 | 15 | Settings + Notifications + App Store Readiness | `S-SET-01..08`, `S-NOT-01`, `S-PERM-03` | J-11, J-15, J-16 |
 
 ---

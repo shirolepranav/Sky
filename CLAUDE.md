@@ -55,13 +55,60 @@ macro). Open `Sky.xcodeproj` in Xcode 16+. The project uses a file-system
 synchronized group, so **new `.swift` files under `Sky/` are picked up
 automatically** — no need to edit the project file.
 
-This machine currently has **only Command Line Tools** (no full Xcode). When you
-can't open Xcode, type-check the cross-platform SwiftUI code against the macOS
-SDK to catch real compile errors. The `#Preview` macro plugin ships only with
-full Xcode, so strip preview blocks first:
+**Xcode is installed** (`/Applications/Xcode.app`), but `xcode-select` still
+points at the Command Line Tools and repointing it needs `sudo`. Prefix commands
+with `DEVELOPER_DIR` instead — no password required:
 
 ```bash
-# type-check all design-system sources (previews stripped)
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -project Sky.xcodeproj -scheme Sky -destination 'generic/platform=iOS Simulator' build
+```
+
+This is a real iOS build and is always preferred over the macOS type-check
+fallback below. Run the unit tests the same way:
+
+```bash
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild test -project Sky.xcodeproj -scheme Sky -destination 'platform=iOS Simulator,name=iPhone 17'
+```
+
+On an **iOS 26.2** destination the suite runs **175 tests, 0 skipped, 8 failures**.
+The 8 are long-standing and live in `SunriseSunsetTests` (solar-position
+precision), `OnboardingViewModelTests`, and `SetupRoutingTests` — **not**
+regressions. Treat that as the baseline; a change is clean if it adds no failures
+beyond those.
+
+Several tests read and write the real `SharedDefaults` / `UserDefaults.standard`
+and don't reset it, so **stale simulator state can cause spurious failures**
+(`GatingTests.testPerAppModeSetsGateFlagForFreeUser` is the usual victim — it
+constructs a `LimitConfigurationViewModel`, which loads a persisted `limitMode`).
+If you see a failure you can't explain, re-run after
+`xcrun simctl erase <device>` before assuming your change caused it.
+
+⚠️ **Known gaps — don't mistake these for regressions from your change:**
+
+1. **StoreKit Testing is broken on the iOS 26.5 simulator runtime** — an Apple
+   bug, not a project defect. `SKTestSession` connects to
+   `com.apple.storekit.configuration.xpc` fine, but storekitd rejects the first
+   "save configuration" request with `SKInternalErrorDomain Code=3`, leaving an
+   empty storefront and zero products. **Run StoreKit tests on iOS 26.2**, where
+   they all pass:
+   ```bash
+   DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild test -project Sky.xcodeproj -scheme Sky -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.2' -only-testing:SkyTests/StoreKitServiceTests
+   ```
+   On a bad runtime they skip (via `skipIfStoreKitTestingIsBroken()`) instead of
+   failing red. Beware: `AppStore.sync()` *hangs* on a broken runtime, so any new
+   restore test must call that guard first or it stalls the whole run.
+2. **`#Preview` blocks must sit inside any `#if DEBUG` that guards the type they
+   reference.** A preview left outside the `#endif` compiles in Debug but breaks
+   the **Release** build — and therefore any archive for submission. Debug-only
+   test seams follow the same rule; verify with
+   `xcodebuild -configuration Release ... build`, which is not covered by a
+   plain Debug build.
+
+**Fallback (no Xcode / preview-macro issues):** type-check the cross-platform
+SwiftUI against the macOS SDK. The `#Preview` macro plugin needs full Xcode, so
+strip preview blocks first:
+
+```bash
 tmp=$(mktemp -d)
 for f in $(find Sky -name '*.swift'); do
   awk '/^#Preview/{exit}{print}' "$f" > "$tmp/$(echo "$f"|tr '/' '_')"
@@ -70,16 +117,10 @@ xcrun --sdk macosx swiftc -typecheck -target arm64-apple-macosx14.0 "$tmp"/*.swi
 ```
 
 (macOS 14 ≙ iOS 17, the app's minimum target — needed for `keyframeAnimator`,
-`phaseAnimator`, and `numericText(value:)`. Confirm the SDK with
-`xcrun --sdk macosx --show-sdk-version` ≥ 14.0.)
-
-Exit 0 = clean. This validates Swift/type correctness only — not iOS layout or
-runtime behavior. Always note this limitation when reporting "verified."
-
-With full Xcode available, prefer:
-```bash
-xcodebuild -project Sky.xcodeproj -scheme Sky -destination 'generic/platform=iOS Simulator' build
-```
+`phaseAnimator`, and `numericText(value:)`.) Note this only covers cross-platform
+code: files touching FamilyControls, DeviceActivity, or `fullScreenCover` are
+iOS-only and will error under the macOS SDK regardless of correctness. Exit 0
+validates Swift/type correctness only — never iOS layout or runtime behavior.
 
 ## Design system rules (non-negotiable)
 
@@ -146,3 +187,13 @@ kind. Exact strings for built screens live in `Sky_App_Workflow.md §3.3`.
 - `sky-screen` — implement a screen from the `Sky_App_Workflow.md` catalog,
   wired to the design system.
 - `sky-component` — add or change a `Core/DesignSystem` component honoring tokens.
+
+## graphify
+
+This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.
+
+Rules:
+- For codebase questions, first run `graphify query "<question>"` when graphify-out/graph.json exists. Use `graphify path "<A>" "<B>"` for relationships and `graphify explain "<concept>"` for focused concepts. These return a scoped subgraph, usually much smaller than GRAPH_REPORT.md or raw grep output.
+- If graphify-out/wiki/index.md exists, use it for broad navigation instead of raw source browsing.
+- Read graphify-out/GRAPH_REPORT.md only for broad architecture review or when query/path/explain do not surface enough context.
+- After modifying code, run `graphify update .` to keep the graph current (AST-only, no API cost).

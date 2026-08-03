@@ -37,15 +37,11 @@ final class AppBrandingTests: XCTestCase {
         }
     }
 
-    /// The four StoreKit product IDs must be distinct.
-    func testProductIDsAreUnique() {
-        let ids = [
-            AppBranding.monthlyProductID,
-            AppBranding.annualProductID,
-            AppBranding.lifetimeProductID,
-            AppBranding.founderLifetimeProductID,
-        ]
-        XCTAssertEqual(Set(ids).count, ids.count, "Product IDs must be unique")
+    /// Sky Pro ships as exactly one product, and the ID must match the one
+    /// declared in `Sky.storekit` / App Store Connect. A drifted ID silently
+    /// breaks every entitlement check.
+    func testProductIDMatchesStoreKitConfiguration() {
+        XCTAssertEqual(AppBranding.lifetimeProductID, "com.sky.pro.lifetime")
     }
 
     // MARK: - Helpers
@@ -53,7 +49,7 @@ final class AppBrandingTests: XCTestCase {
     private func assertColor(_ color: Color, red: Int, green: Int, blue: Int,
                              file: StaticString = #filePath, line: UInt = #line) {
         var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
-        UIColor(color).getRed(&r, &g, &b, &a)
+        UIColor(color).getRed(&r, green: &g, blue: &b, alpha: &a)
         let tol: CGFloat = 1.0 / 255.0 + 0.001
         XCTAssertEqual(r, CGFloat(red) / 255, accuracy: tol, "red", file: file, line: line)
         XCTAssertEqual(g, CGFloat(green) / 255, accuracy: tol, "green", file: file, line: line)

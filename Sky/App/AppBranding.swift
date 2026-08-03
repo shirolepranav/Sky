@@ -24,15 +24,14 @@ enum AppBranding {
     static let cloudGrey = SkyColor.cloudGrey
     static let sunYellow = SkyColor.sunYellow
 
-    // MARK: Subscription product IDs (App Store Connect)
-    static let monthlyProductID = "com.sky.pro.monthly"
-    static let annualProductID = "com.sky.pro.annual"
+    // MARK: Product ID (App Store Connect)
+    // Sky Pro is a single non-consumable one-time purchase — no subscriptions,
+    // no tiers, no trial (Apple does not offer trials on non-consumables; the
+    // free tier is the trial). PRD §4.9.
     static let lifetimeProductID = "com.sky.pro.lifetime"
-    static let founderLifetimeProductID = "com.sky.pro.founder"
 
     // MARK: About / legal (S-SET-08)
     static let privacyPolicyURL = URL(string: "https://sky.app/privacy")!
     static let termsOfServiceURL = URL(string: "https://sky.app/terms")!
     static let supportEmail = "support@sky.app"
-    static let manageSubscriptionsURL = URL(string: "https://apps.apple.com/account/subscriptions")!
 }

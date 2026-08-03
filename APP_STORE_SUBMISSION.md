@@ -56,7 +56,8 @@ Declare **Data Not Collected**. Sky collects and transmits no personal data. Spe
 | Health, financial, location | **Not collected off-device.** GPS is used transiently for verification, rounded to 0.01°, and never transmitted. |
 | User content (videos, reasons) | **Not collected.** Verification videos are deleted immediately after processing; emergency/pause reasons stay in the App Group container. |
 | Usage data / diagnostics | Not collected. No third-party analytics SDKs. |
-| Purchases | Handled by Apple (StoreKit). Sky stores no purchase data on any server. |
+| Purchases | Handled by Apple (StoreKit). One non-consumable, no subscriptions. Sky stores no purchase data on any server. |
+| Photos | **Not collected.** `NSPhotoLibraryAddUsageDescription` exists only so the user can pick "Save Image" for a streak card they chose to share. Sky never reads the photo library. |
 
 iCloud (CloudKit) sync of streak/progress uses the user's **private** CloudKit
 database and is not "data collection by the developer" — no data reaches a Sky server.
@@ -75,7 +76,7 @@ database and is not "data collection by the developer" — no data reaches a Sky
 > No video, location, or screen-time data is uploaded.
 >
 > **To test:** use the bundled StoreKit configuration for Pro. On the Settings tab, the
-> version row unlocks a debug menu (tap 7×) with "Force shield apply" and "Toggle Pro"
+> version row unlocks a debug menu (tap 7×) with "Force shield apply" and "Simulate Pro"
 > so review can exercise the blocked → verify flow without waiting out a real budget.
 >
 > The Family Controls Distribution entitlement is approved for all four bundle IDs
@@ -111,6 +112,6 @@ extension for event-driven ones). Four notifications: morning reminder (8:30 AM)
 Mirror `Sky_Development_Roadmap.md` "Final Pre-Submission Checklist" (lines 616–633):
 entitlement approved for all four bundle IDs; tested on iOS 17.0 / 17.6 / latest 18.x
 and on iPhone SE 3 / 14 / 16 Pro Max; no leaked sandbox entitlements; Privacy Label
-matches behavior; CloudKit production schema deployed; Founder's Lifetime SKU with
-limited availability; 7 crash-free days in TestFlight with ≥20 testers; `otool -L`
+matches behavior; CloudKit production schema deployed; `com.sky.pro.lifetime`
+configured as a $19.99 non-consumable; 7 crash-free days in TestFlight with ≥20 testers; `otool -L`
 shows no third-party SDKs; policy/terms hosted; support inbox live.

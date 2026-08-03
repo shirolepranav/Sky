@@ -235,6 +235,20 @@ final class VideoRecordingViewModel: NSObject, ObservableObject {
             .sink { [weak self] _ in self?._tick() }
     }
 
+    #if DEBUG
+    /// Test seam — puts the view model into a recording-like state without a
+    /// camera, so `_tick()` (which guards on `recordingState == .recording`) and
+    /// `confirmCancel()` (which deletes `outputURL`) can be driven in unit tests.
+    /// `startSession()` is the only production path that sets these, and it
+    /// requires real camera authorization. Never compiled into release.
+    func _primeForTesting(outputURL: URL? = nil) {
+        recordingState = .recording
+        elapsedSeconds = 0
+        currentPromptIndex = 0
+        self.outputURL = outputURL
+    }
+    #endif
+
     /// Internal tick — exposed as `internal` so unit tests can drive it directly.
     func _tick() {
         guard recordingState == .recording else { return }

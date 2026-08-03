@@ -11,6 +11,7 @@ import FamilyControls
 struct DebugMenuView: View {
     @EnvironmentObject private var mascotManager: MascotStateManager
     @EnvironmentObject private var storeKit: StoreKitService
+    @EnvironmentObject private var streakManager: StreakManager
 
     @State private var store = SharedDefaults()
     @State private var toast = ""
@@ -35,12 +36,45 @@ struct DebugMenuView: View {
                         }
                     }
                 }
-                Button(storeKit.isPro ? "Toggle Pro (currently ON)" : "Toggle Pro (currently OFF)") {
-                    storeKit.debugTogglePro()
-                    flash(storeKit.isPro ? "Pro ON" : "Pro OFF")
-                }
                 #endif
             }
+
+            #if DEBUG
+            Section("Pro demo account") {
+                Toggle("Simulate Pro", isOn: Binding(
+                    get: { storeKit.isPro },
+                    set: { pro in
+                        storeKit.debugSetPro(pro)
+                        flash(pro ? "Pro granted" : "Back to Free")
+                    }
+                ))
+                .tint(SkyColor.mossGreen)
+
+                Button("Seed full Pro demo account") {
+                    DebugSeeder.applyFullProAccount(streakManager: streakManager,
+                                                    storeKit: storeKit,
+                                                    store: store)
+                    flash("Seeded full Pro account")
+                }
+
+                Button("Unlock all 10 badges") {
+                    DebugSeeder.unlockAllBadges(streakManager: streakManager)
+                    flash("All badges unlocked")
+                }
+                Button("Set 100-day streak") {
+                    DebugSeeder.set100DayStreak(streakManager: streakManager)
+                    flash("Streak → 100 days")
+                }
+                Button("Add emergency + pause history") {
+                    DebugSeeder.seedEmergencyHistory()
+                    flash("Emergency history added")
+                }
+                Button("Add weekly-insights data") {
+                    DebugSeeder.seedWeeklyInsights(streakManager: streakManager)
+                    flash("Weekly-insights data added")
+                }
+            }
+            #endif
 
             Section("Inspect") {
                 Button("View temp video files") { countTempVideos() }
@@ -116,8 +150,15 @@ struct DebugMenuView: View {
         store.isCurrentlyBlocked = false
         store.pauseStartedAt = nil
         store.lastPauseDate = nil
+        #if DEBUG
+        // Reset the live managers too, so the wipe is reflected without a relaunch,
+        // and clear the on-device emergency/pause log seeded by the demo account.
+        streakManager.debugReplaceProgress(UserProgress())
+        EmergencyLogStore.shared.debugClear()
+        storeKit.debugSetPro(false)
+        #endif
         wipeTaps = 0
-        flash("Local progress wiped — relaunch to reload")
+        flash("Local progress wiped")
     }
 
     private func flash(_ message: String) {
@@ -130,4 +171,5 @@ struct DebugMenuView: View {
     NavigationStack { DebugMenuView() }
         .environmentObject(MascotStateManager())
         .environmentObject(StoreKitService())
+        .environmentObject(StreakManager())
 }

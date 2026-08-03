@@ -35,8 +35,8 @@ final class MockCaptureController: CaptureController {
     func stopRecording() {
         stopRecordingCalled = true
         // Simulate successful file-write by calling the delegate
-        guard let delegate, let url = recordingURL else { return }
-        delegate.fileOutput(
+        guard let recordingDelegate, let url = recordingURL else { return }
+        recordingDelegate.fileOutput(
             AVCaptureMovieFileOutput(),
             didFinishRecordingTo: url,
             from: [],
@@ -77,15 +77,26 @@ final class VideoRecordingViewModelTests: XCTestCase {
     // MARK: Timer starts
 
     func testRecordingStartsTimer() async {
-        // Prime recording state manually (startSession needs camera access on device)
+        // `_primeForTesting` stands in for startSession(), which needs real
+        // camera authorization. Without it `_tick()` no-ops on its
+        // `recordingState == .recording` guard.
+        vm._primeForTesting()
         vm.startCountdownTimer()
         XCTAssertEqual(vm.elapsedSeconds, 0, "Elapsed seconds should start at 0")
+    }
+
+    /// `_tick()` must do nothing outside a recording — this is the guard that
+    /// made the tests below silently pass-through before they were primed.
+    func testTickIsIgnoredWhenNotRecording() {
+        for _ in 0..<30 { vm._tick() }
+        XCTAssertEqual(vm.elapsedSeconds, 0)
+        XCTAssertFalse(mock.stopRecordingCalled)
     }
 
     // MARK: Stops at 30 seconds
 
     func testRecordingStopsAt30Seconds() {
-        // Put VM into recording state so _tick() runs
+        vm._primeForTesting()
         vm.startCountdownTimer()
 
         // Drive 30 ticks manually
@@ -102,10 +113,11 @@ final class VideoRecordingViewModelTests: XCTestCase {
         try Data("partial".utf8).write(to: tempURL)
         XCTAssertTrue(FileManager.default.fileExists(atPath: tempURL.path))
 
-        // Inject the URL into the VM via a partial recording start
-        // (we test the delete logic directly via confirmCancel after setting outputURL)
-        // Use internal _tick after manually wiring up the output URL via startSession simulation
-        mock.startRecording(to: tempURL, delegate: vm)
+        // The VM deletes its own private `outputURL`, which only startSession()
+        // sets — priming it is what makes confirmCancel() reach the file.
+        // (Setting it on the mock alone left the VM's URL nil, so the delete
+        // was a silent no-op and this assertion could never have passed.)
+        vm._primeForTesting(outputURL: tempURL)
 
         vm.confirmCancel()
 
@@ -119,6 +131,7 @@ final class VideoRecordingViewModelTests: XCTestCase {
     // MARK: Prompts advance on schedule
 
     func testPromptsAdvanceOnSchedule() {
+        vm._primeForTesting()
         vm.startCountdownTimer()
 
         // 0–5s → prompt 0

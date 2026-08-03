@@ -1,8 +1,14 @@
 // StoreKitService.swift
-// Core StoreKit 2 service — loads all four Sky Pro tiers, manages purchases,
-// maintains the entitlement state, and emits the `isPro` / `currentTier`
-// signals that gate Pro features throughout the app.
-// Tech Spec §10; Sky_App_Workflow.md §Group G S-PAY-01..05; Roadmap Phase 14.
+// Core StoreKit 2 service — loads the single Sky Pro product, manages the
+// purchase, maintains the entitlement state, and emits the `isPro` signal that
+// gates Pro features throughout the app.
+// Tech Spec §10; Sky_App_Workflow.md §Group G S-PAY-01/03/05; Roadmap Phase 14.
+//
+// Sky Pro is ONE non-consumable one-time purchase. There are no subscriptions,
+// no tiers to rank, and no free trial (Apple does not support introductory
+// offers on non-consumables — the free tier is the trial). That makes `isPro`
+// the only entitlement signal the rest of the app needs; every gate in the app
+// takes a plain `Bool`.
 //
 // Call order at app launch (SkyApp.swift):
 //   1. storeKit.listenForTransactions()  — background update listener
@@ -12,20 +18,10 @@
 import StoreKit
 import Foundation
 
-// MARK: - ProTier
-
-/// Identifies which paid tier is currently active. nil on StoreKitService.currentTier = Free.
-enum ProTier: Equatable {
-    case monthly(renewalDate: Date?)
-    case annual(renewalDate: Date?, isTrial: Bool, trialEndDate: Date?)
-    case lifetime
-    case founderLifetime
-}
-
 // MARK: - PurchaseOutcome
 
 enum PurchaseOutcome {
-    case success(ProTier)
+    case success
     case userCancelled
     case pending        // Ask-to-Buy family approval waiting
     case failed(Error)
@@ -46,23 +42,8 @@ final class StoreKitService: ObservableObject {
 
     @Published private(set) var products: [Product] = []
     @Published private(set) var isPro: Bool = false
-    @Published private(set) var currentTier: ProTier? = nil
-    @Published private(set) var founderSeatsRemaining: Int
 
-    private static let founderSeatsKey     = "founderSeatsRemaining"
-    private static let founderSeatsDefault = 500
-
-    let productIDs: [String] = [
-        AppBranding.monthlyProductID,
-        AppBranding.annualProductID,
-        AppBranding.lifetimeProductID,
-        AppBranding.founderLifetimeProductID,
-    ]
-
-    init() {
-        let stored = UserDefaults.standard.object(forKey: Self.founderSeatsKey) as? Int
-        founderSeatsRemaining = stored ?? Self.founderSeatsDefault
-    }
+    let productIDs: [String] = [AppBranding.lifetimeProductID]
 
     // MARK: - Products
 
@@ -76,6 +57,9 @@ final class StoreKitService: ObservableObject {
         products.first { $0.id == id }
     }
 
+    /// The one Sky Pro product, when StoreKit metadata is available.
+    var proProduct: Product? { product(for: AppBranding.lifetimeProductID) }
+
     // MARK: - Purchase
 
     @discardableResult
@@ -87,7 +71,7 @@ final class StoreKitService: ObservableObject {
                 let tx = try unwrap(verification)
                 await tx.finish()
                 await refreshEntitlement()
-                return .success(currentTier ?? .lifetime)
+                return .success
             case .userCancelled:
                 return .userCancelled
             case .pending:
@@ -103,16 +87,15 @@ final class StoreKitService: ObservableObject {
     // MARK: - Entitlement
 
     func refreshEntitlement() async {
-        var best: ProTier? = nil
+        var entitled = false
         for await result in Transaction.currentEntitlements {
             guard case .verified(let tx) = result,
-                  tx.revocationDate == nil else { continue }
-            if let tier = makeTier(from: tx) {
-                best = higherTier(best, tier)
-            }
+                  tx.revocationDate == nil,
+                  tx.productID == AppBranding.lifetimeProductID else { continue }
+            entitled = true
+            break
         }
-        currentTier = best
-        isPro = best != nil
+        isPro = entitled
     }
 
     // MARK: - Transaction listener
@@ -132,6 +115,8 @@ final class StoreKitService: ObservableObject {
 
     // MARK: - Restore
 
+    /// Required by App Review for a non-consumable — it is the only way a user
+    /// on a new device recovers their purchase.
     func restorePurchases() async -> RestoreOutcome {
         do {
             try await AppStore.sync()
@@ -143,21 +128,17 @@ final class StoreKitService: ObservableObject {
     }
 
     #if DEBUG
-    /// Debug-menu (S-SET-09) override — flip the entitlement locally so Pro-gated
-    /// UI can be exercised without a sandbox purchase. Never compiled into release.
+    /// Debug-menu (S-SET-09) override — set the entitlement locally so Pro-gated
+    /// UI (and the paywall's "Already Pro" variant) can be exercised without a
+    /// sandbox purchase. Never compiled into release.
+    func debugSetPro(_ pro: Bool) {
+        isPro = pro
+    }
+
     func debugTogglePro() {
-        isPro.toggle()
-        currentTier = isPro ? .lifetime : nil
+        debugSetPro(!isPro)
     }
     #endif
-
-    // MARK: - Founder seats
-
-    func decrementFounderSeats() {
-        guard founderSeatsRemaining > 0 else { return }
-        founderSeatsRemaining -= 1
-        UserDefaults.standard.set(founderSeatsRemaining, forKey: Self.founderSeatsKey)
-    }
 
     // MARK: - Helpers
 
@@ -168,42 +149,6 @@ final class StoreKitService: ObservableObject {
         switch result {
         case .unverified(_, let error): throw error
         case .verified(let value):      return value
-        }
-    }
-
-    private func makeTier(from tx: Transaction) -> ProTier? {
-        switch tx.productID {
-        case AppBranding.founderLifetimeProductID:
-            return .founderLifetime
-        case AppBranding.lifetimeProductID:
-            return .lifetime
-        case AppBranding.annualProductID:
-            let isTrial = tx.offerType == .introductory
-            return .annual(
-                renewalDate:  tx.expirationDate,
-                isTrial:      isTrial,
-                trialEndDate: isTrial ? tx.expirationDate : nil
-            )
-        case AppBranding.monthlyProductID:
-            return .monthly(renewalDate: tx.expirationDate)
-        default:
-            return nil
-        }
-    }
-
-    /// Returns the tier with higher billing permanence.
-    private func higherTier(_ a: ProTier?, _ b: ProTier?) -> ProTier? {
-        guard let b else { return a }
-        guard let a else { return b }
-        return tierRank(a) >= tierRank(b) ? a : b
-    }
-
-    private func tierRank(_ tier: ProTier) -> Int {
-        switch tier {
-        case .founderLifetime: return 4
-        case .lifetime:        return 3
-        case .annual:          return 2
-        case .monthly:         return 1
         }
     }
 }

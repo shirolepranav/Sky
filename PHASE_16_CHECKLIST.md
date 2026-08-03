@@ -48,7 +48,7 @@ before submitting to the App Store. **Do not submit while any box is unchecked.*
       remote push, GPS rounded to 0.01°, videos deleted after processing).
 - [ ] App Review notes justify Family Controls usage.
 - [ ] CloudKit **production** schema deployed.
-- [ ] Founder's Lifetime SKU configured with limited availability.
+- [ ] `com.sky.pro.lifetime` configured as a non-consumable at $19.99 with regional pricing.
 - [ ] 7 days crash-free in TestFlight (20+ beta testers).
 - [ ] No third-party SDKs in the binary.
 - [ ] Privacy policy & terms hosted and linked; support email active.

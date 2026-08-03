@@ -123,9 +123,21 @@ final class StreakManager: ObservableObject {
     }
 
     /// Returns true when `n` is a streak milestone that deserves a celebration.
+    /// The list lives in `StreakInsights.milestones` so the Streaks tab's
+    /// "next milestone" progress and this check can never drift apart.
     func isMilestoneStreak(_ n: Int) -> Bool {
-        [3, 7, 14, 30, 60, 100].contains(n)
+        StreakInsights.milestones.contains(n)
     }
+
+    #if DEBUG
+    /// Debug-menu (S-SET-09) seed hook — replace the live progress and persist it,
+    /// so the UI updates immediately (writing UserDefaults alone would not refresh
+    /// the `@Published` value). Never compiled into release.
+    func debugReplaceProgress(_ newProgress: UserProgress) {
+        progress = newProgress
+        persist()
+    }
+    #endif
 
     // MARK: - Private
 

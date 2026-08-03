@@ -25,7 +25,7 @@ Do not start Phase N+1 until all four sections of Phase N are green.
 
 ### Automated Tests
 - `AppBrandingTests.testColorValuesParseCorrectly` — verifies hex colors decode without crashing
-- `AppBrandingTests.testProductIDsAreUnique` — verifies the four StoreKit product IDs are distinct
+- `AppBrandingTests.testProductIDMatchesStoreKitConfiguration` — guards the single product ID against drift
 - Build succeeds for all four targets in Debug and Release
 
 ### Manual Tests
@@ -445,6 +445,8 @@ Do not start Phase N+1 until all four sections of Phase N are green.
   - Fetch on app launch; subscribe to changes
   - Conflict resolution: last-writer-wins for counters; union for badge list
 - Verify the midnight reset writes to `SharedDefaults` and the main app picks up the new values on next foreground
+- Implement `StreakInsights.swift` — pure derivations for the Streaks tab (hero state, next-milestone progress, last-seven-days strip). Owns the milestone list `[3, 7, 14, 30, 60, 100]`; `StreakManager.isMilestoneStreak(_:)` reads it so the two can't drift. **No new persisted fields** — the day strip comes from the `currentStreak` window ending at `lastVerificationDate`.
+- Build `S-STREAK-05` share card (`StreakShareCardView` + `StreakShareSheetView`): `ImageRenderer` → `UIImage` → `ShareLink`. Not Pro-gated. Excludes the emergency-unlock count and all location data.
 
 ### Automated Tests
 - `StreakManagerTests.testFirstVerificationStartsStreakAt1`
@@ -455,6 +457,7 @@ Do not start Phase N+1 until all four sections of Phase N are green.
 - `BadgeEngineTests.testFirstLightUnlocksOnFirstVerification`
 - `BadgeEngineTests.testStreakBadgesUnlockAtCorrectThresholds`
 - `BadgeEngineTests.testWandererBadgeRequires5DistinctLocations`
+- `StreakInsightsTests` — hero state (incl. broken-vs-first-time), milestone math, and the day strip (stale/missing dates, streak longer than the window)
 - `CloudKitSyncServiceTests.testSaveAndFetchUserProgress` — requires a CloudKit test environment
 
 ### Manual Tests
@@ -519,45 +522,40 @@ Do not start Phase N+1 until all four sections of Phase N are green.
 
 ---
 
-## Phase 14 — StoreKit 2 Subscriptions & Paywall
+## Phase 14 — StoreKit 2 One-Time Purchase & Paywall
 
 ### Code Development
-- Configure all 4 products in App Store Connect:
-  - `com.sky.pro.monthly` — Auto-renewable subscription, $4.99/month
-  - `com.sky.pro.annual` — Auto-renewable subscription, $29.99/year, 7-day free trial
-  - `com.sky.pro.lifetime` — Non-consumable IAP, $79
-  - `com.sky.pro.founder` — Non-consumable IAP, $39, limited availability (manually enable until cap)
+- Configure the single product in App Store Connect:
+  - `com.sky.pro.lifetime` — Non-consumable IAP, $19.99, regional pricing per storefront
+  - No subscriptions and no introductory offer — Apple does not support trials on non-consumables
 - Enroll in App Store Small Business Program (15% commission from day one)
 - Implement `StoreKitService.swift`:
-  - `loadProducts()` — fetches the 4 products
-  - `purchase(_:)` — initiates a purchase
-  - `refreshEntitlement()` — checks `Transaction.currentEntitlements` for any active Pro entitlement
+  - `loadProducts()` — fetches the one product
+  - `purchase(_:)` — initiates the purchase
+  - `refreshEntitlement()` — checks `Transaction.currentEntitlements` for a verified, non-revoked `com.sky.pro.lifetime`
   - `listenForTransactions()` — long-running task started at app launch
 - Build `PaywallView`:
-  - Annual highlighted as default (largest, centered, "Best Value")
-  - Monthly to the left, Lifetime to the right
-  - Founder's lifetime appears below as a separate card with a "Limited — 500 seats" badge IF still available
+  - One `ProPriceCard` showing the price and "Pay once. No subscription, ever."
   - Three feature comparison rows: free vs Pro
-  - Restore purchases button
+  - Restore purchases button (required by App Review for a non-consumable)
+  - Legal footer must say "One-time purchase. Not a subscription." — never auto-renewal copy
 - Gate Pro features (per-app limits, all badges, all mascot states, weekly insights) via `if storeKit.isPro`
 - Show paywall after the first successful verification (one-shot "Sky Pro" upsell)
 
 ### Automated Tests
-- `StoreKitServiceTests.testLoadProductsFetchesAll4` — using a test product list
-- `StoreKitServiceTests.testPurchaseFlowSucceeds` — using StoreKit's Xcode test framework
-- `StoreKitServiceTests.testRefreshEntitlementDetectsActiveLifetime`
-- `StoreKitServiceTests.testRefreshEntitlementDetectsActiveSubscription`
-- `PaywallViewModelTests.testFreeUserSeesAllTiers`
-- `PaywallViewModelTests.testProUserSeesNoPaywall`
+- `StoreKitServiceTests.testLoadProductsFetchesTheSingleProSKU`
+- `StoreKitServiceTests.testProProductIsNotASubscription` — guards against re-introducing a renewing SKU
+- `StoreKitServiceTests.testPurchaseMakesUserPro` — using StoreKit's Xcode test framework
+- `StoreKitServiceTests.testRefreshEntitlementDetectsExistingPurchase`
+- `StoreKitServiceTests.testRestoreFindsExistingPurchase`
 - `GatingTests.testPerAppLimitsBlockedForFreeUsers`
 
 ### Manual Tests
-- In Xcode, create a StoreKit configuration file with all 4 products
-- Test purchase of each tier in the sandbox environment
-- Test the 7-day free trial flow → cancel before trial ends → entitlement revoked
+- Use the bundled `Sky/Resources/Sky.storekit` configuration (one non-consumable at 19.99)
+- Test the purchase in the sandbox environment
 - Test restoring purchases on a fresh install
 - Verify the paywall does NOT appear for Pro users
-- Verify the founder tier shows the "Limited" badge
+- Verify the legal footer makes no auto-renewal claim
 
 ### Regression Tests
 - Verification flow still works for free users (limited to 2 apps and combined mode) — Phases 10–13.
@@ -624,7 +622,7 @@ Before submitting to App Store Review:
 - [ ] App Store Connect Privacy Nutrition Label matches actual data handling
 - [ ] App Review notes explain that Family Controls is used for individual self-management, not parental controls
 - [ ] CloudKit production schema deployed
-- [ ] Founder's Lifetime SKU configured with limited availability
+- [ ] `com.sky.pro.lifetime` configured as a non-consumable at $19.99 with regional pricing
 - [ ] Crash-free for 7 consecutive days in TestFlight with at least 20 beta testers
 - [ ] No third-party SDKs in the build (verify via `otool -L` on the binary)
 - [ ] Privacy policy and terms of service hosted and linked

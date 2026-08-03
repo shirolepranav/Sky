@@ -36,6 +36,10 @@ private final class MockDeviceActivityCenter: DeviceActivityScheduling {
 
 // MARK: - Tests
 
+// `DeviceActivityService` (and its static helpers) are @MainActor, so the test
+// case must be too — otherwise every call is a cross-actor hop the compiler
+// rejects under Swift 6 isolation checking.
+@MainActor
 final class DeviceActivityServiceTests: XCTestCase {
 
     // MARK: Schedule

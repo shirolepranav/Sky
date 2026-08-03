@@ -173,7 +173,7 @@ One record type: `UserProgress` (one record per user, ID = "current").
 | `unlockedBadges` | [String] | List of badge IDs |
 | `mascotState` | String | "idle", "happy", "sad", "celebrating" |
 | `verificationLocations` | [String] | List of "lat_lng" rounded to 0.01° (for "Wanderer" badge) |
-| `firstInstallDate` | Date | Used for "Founder's Lifetime" eligibility check |
+| `firstInstallDate` | Date | First launch; "member since" context |
 
 ### 6.3 Emergency Unlock Log (on-device only, never synced)
 
@@ -461,12 +461,9 @@ final class StoreKitService: ObservableObject {
     @Published var products: [Product] = []
     @Published var isPro: Bool = false
 
-    private let productIDs = [
-        AppBranding.monthlyProductID,
-        AppBranding.annualProductID,
-        AppBranding.lifetimeProductID,
-        AppBranding.founderLifetimeProductID
-    ]
+    // One non-consumable. `isPro` is the only entitlement signal the app needs —
+    // every Pro gate takes a plain Bool, so there is no tier type to model.
+    private let productIDs = [AppBranding.lifetimeProductID]
 
     func loadProducts() async throws {
         products = try await Product.products(for: productIDs)
@@ -505,7 +502,9 @@ final class StoreKitService: ObservableObject {
 }
 ```
 
-Founder's lifetime cap is enforced server-side via App Store Connect's limited availability — set the SKU to be available only until cap is hit. Sky's UI displays an *approximate* remaining-seats counter pulled from a static plist updated via App Store Connect's review-free metadata updates.
+Sky Pro is a **non-consumable**, so there is no renewal, no expiry, and no introductory offer to model. `refreshEntitlement()` reduces to "is there a verified, non-revoked transaction for `com.sky.pro.lifetime`". `AppStore.sync()`-backed restore is mandatory — it is the only way a user recovers the purchase on a new device.
+
+Regional prices are set per-storefront in App Store Connect; the app never hardcodes a price except `FallbackPricing`, which is display-only for when StoreKit metadata fails to load.
 
 ---
 

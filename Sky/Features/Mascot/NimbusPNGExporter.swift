@@ -73,8 +73,11 @@ struct NimbusPNGExporter: View {
         lines.forEach { print($0) }
     }
 }
-#endif
 
+// Must stay INSIDE the `#if DEBUG` — `NimbusPNGExporter` does not exist in
+// Release, so a preview outside the guard fails the Release build (and with it
+// any archive for App Store submission).
 #Preview("NimbusPNGExporter — run once in Simulator to generate shield assets") {
     NimbusPNGExporter()
 }
+#endif

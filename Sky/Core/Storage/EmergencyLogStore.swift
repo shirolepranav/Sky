@@ -41,6 +41,20 @@ final class EmergencyLogStore {
         persist()
     }
 
+    #if DEBUG
+    /// Debug-menu (S-SET-09) seed hook — replace all entries with a demo set.
+    func debugReplaceAll(_ newEntries: [EmergencyUnlockEntry]) {
+        entries = newEntries
+        persist()
+    }
+
+    /// Debug-menu (S-SET-09) reset hook — clear all entries.
+    func debugClear() {
+        entries = []
+        persist()
+    }
+    #endif
+
     // MARK: Read
 
     func entriesThisWeek() -> [EmergencyUnlockEntry] {

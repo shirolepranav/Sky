@@ -38,5 +38,7 @@
 	<!-- Barometer (Phase 8 — CMAltimeter detects altitude changes from walking) -->
 	<key>NSMotionUsageDescription</key>
 	<string>Sky uses the barometer to detect altitude changes consistent with walking outdoors.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Sky saves your streak card to Photos when you choose Save Image from the share sheet.</string>
 </dict>
 </plist>

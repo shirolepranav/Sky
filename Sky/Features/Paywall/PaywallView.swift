@@ -1,8 +1,8 @@
 // PaywallView.swift
-// S-PAY-01 (+ S-PAY-02 inline variant) — Full paywall presented as a
-// .fullScreenCover. Annual tier highlighted as default "Best Value".
+// S-PAY-01 — Full paywall presented as a .fullScreenCover. Sky Pro is a single
+// one-time purchase, so there is one price card, no trial, and no tier choice.
 // One-shot post-verification upsell and all Pro-gate entry points land here.
-// Sky_App_Workflow.md §Group G S-PAY-01/S-PAY-02; Roadmap Phase 14.
+// Sky_App_Workflow.md §Group G S-PAY-01; Roadmap Phase 14.
 
 import StoreKit
 import SwiftUI
@@ -11,14 +11,16 @@ struct PaywallView: View {
     @EnvironmentObject private var storeKit: StoreKitService
     let onDismiss: () -> Void
 
-    @State private var purchasingID: String? = nil
+    @State private var isPurchasing: Bool = false
     @State private var loadError: Bool = false
+    @State private var didAttemptLoad: Bool = false
     @State private var restoreOutcome: RestoreOutcome? = nil
     @State private var showRestoreSheet: Bool = false
-    @State private var showTrialConfirm: Bool = false
-    @State private var trialEndDate: Date? = nil
 
-    private var isLoading: Bool { storeKit.products.isEmpty && !loadError }
+    // Spin only until the first load attempt finishes. If StoreKit returns no
+    // products without throwing, we stop spinning and fall back to a static price
+    // (see FallbackPricing) instead of hanging forever.
+    private var isLoading: Bool { !didAttemptLoad && storeKit.products.isEmpty && !loadError }
     private var alreadyPro: Bool { storeKit.isPro }
 
     var body: some View {
@@ -50,14 +52,6 @@ struct PaywallView: View {
                 .presentationDetents([.medium])
             }
         }
-        .fullScreenCover(isPresented: $showTrialConfirm) {
-            if let end = trialEndDate {
-                TrialStartConfirmationView(trialEndDate: end) {
-                    showTrialConfirm = false
-                    onDismiss()
-                }
-            }
-        }
         .task {
             if storeKit.products.isEmpty {
                 do {
@@ -66,6 +60,7 @@ struct PaywallView: View {
                     loadError = true
                 }
             }
+            didAttemptLoad = true
         }
         .accessibilityIdentifier("paywall")
     }
@@ -80,12 +75,7 @@ struct PaywallView: View {
                 if loadError {
                     errorSection
                 } else {
-                    tierCardsSection
-
-                    if storeKit.founderSeatsRemaining > 0 || isLoading {
-                        founderSection
-                    }
-
+                    priceSection
                     comparisonSection
                 }
 
@@ -109,7 +99,7 @@ struct PaywallView: View {
                 .skyText(.titleXL)
                 .multilineTextAlignment(.center)
 
-            Text("Go further than the free tier.")
+            Text("One purchase. Yours forever.")
                 .skyText(.body, color: SkyColor.inkSoft)
                 .multilineTextAlignment(.center)
 
@@ -122,49 +112,23 @@ struct PaywallView: View {
         }
     }
 
-    // MARK: - Tier cards
+    // MARK: - Price
 
-    private var tierCardsSection: some View {
-        HStack(alignment: .top, spacing: SkySpacing.s3) {
-            TierCardView(
-                product: storeKit.product(for: AppBranding.monthlyProductID),
-                tierName: "Monthly",
-                isHighlighted: false,
-                isLoading: isLoading,
-                action: { handlePurchase(id: AppBranding.monthlyProductID) }
-            )
-
-            TierCardView(
-                product: storeKit.product(for: AppBranding.annualProductID),
-                tierName: "Annual",
-                isHighlighted: true,
-                ribbonText: "Best Value",
-                badgeText: "7-day free trial",
-                isLoading: isLoading,
-                action: { handlePurchase(id: AppBranding.annualProductID) }
-            )
-
-            TierCardView(
-                product: storeKit.product(for: AppBranding.lifetimeProductID),
-                tierName: "Lifetime",
-                isHighlighted: false,
-                isLoading: isLoading,
-                action: { handlePurchase(id: AppBranding.lifetimeProductID) }
-            )
-        }
-        .disabled(purchasingID != nil)
-    }
-
-    // MARK: - Founder card
-
-    private var founderSection: some View {
-        FounderCardView(
-            product: storeKit.product(for: AppBranding.founderLifetimeProductID),
-            seatsRemaining: storeKit.founderSeatsRemaining,
+    private var priceSection: some View {
+        ProPriceCardView(
+            product: storeKit.proProduct,
             isLoading: isLoading,
-            action: { handlePurchase(id: AppBranding.founderLifetimeProductID) }
+            fallback: FallbackPricing.price(for: AppBranding.lifetimeProductID),
+            action: handlePurchase
         )
-        .disabled(purchasingID != nil)
+        .disabled(isPurchasing)
+        .overlay {
+            if isPurchasing {
+                ProgressView()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(SkyColor.surface.opacity(0.6))
+            }
+        }
     }
 
     // MARK: - Comparison
@@ -206,8 +170,10 @@ struct PaywallView: View {
 
     // MARK: - Legal footer
 
+    // Sky Pro is a non-consumable: nothing auto-renews and there is nothing to
+    // cancel. Saying otherwise would be false and is a review risk.
     private var legalFooter: some View {
-        Text("Subscriptions auto-renew. Cancel anytime in App Store settings.")
+        Text("One-time purchase. Not a subscription. Terms · Privacy.")
             .skyText(.caption, color: SkyColor.inkMuted)
             .multilineTextAlignment(.center)
     }
@@ -227,9 +193,11 @@ struct PaywallView: View {
 
                 SkySecondaryButton("Try again") {
                     loadError = false
+                    didAttemptLoad = false
                     Task {
                         do { try await storeKit.loadProducts() }
                         catch { loadError = true }
+                        didAttemptLoad = true
                     }
                 }
             }
@@ -254,12 +222,6 @@ struct PaywallView: View {
                     .skyText(.body, color: SkyColor.inkSoft)
             }
 
-            if case .monthly = storeKit.currentTier {
-                manageSubscriptionLink
-            } else if case .annual = storeKit.currentTier {
-                manageSubscriptionLink
-            }
-
             Spacer()
 
             SkyPrimaryButton("Done", action: onDismiss)
@@ -270,36 +232,27 @@ struct PaywallView: View {
         .accessibilityIdentifier("paywall.alreadyPro")
     }
 
-    private var manageSubscriptionLink: some View {
-        Link(destination: URL(string: "https://apps.apple.com/account/subscriptions")!) {
-            Text("Manage subscription")
-                .skyText(.label, color: SkyColor.mossGreen)
-        }
-    }
-
     // MARK: - Actions
 
-    private func handlePurchase(id: String) {
-        guard let product = storeKit.product(for: id) else { return }
-        purchasingID = id
+    private func handlePurchase() {
+        guard let product = storeKit.proProduct else {
+            #if DEBUG
+            // No live StoreKit product (e.g. Simulator without the .storekit config)
+            // — grant Pro so the paywall flow stays exercisable in Debug.
+            storeKit.debugSetPro(true)
+            onDismiss()
+            #endif
+            return
+        }
+        isPurchasing = true
         Task {
             let outcome = await storeKit.purchase(product)
-            purchasingID = nil
+            isPurchasing = false
 
             switch outcome {
-            case .success(let tier):
-                if id == AppBranding.founderLifetimeProductID {
-                    storeKit.decrementFounderSeats()
-                }
-                if case .annual(_, isTrial: true, let trialEnd) = tier, let end = trialEnd {
-                    trialEndDate = end
-                    showTrialConfirm = true
-                } else {
-                    onDismiss()
-                }
-            case .userCancelled, .pending:
-                break
-            case .failed:
+            case .success:
+                onDismiss()
+            case .userCancelled, .pending, .failed:
                 break
             }
         }
@@ -360,13 +313,13 @@ private struct ComparisonRow: View {
 
 // MARK: - Previews
 
-#Preview("S-PAY-01 Paywall (loading)") {
+#Preview("S-PAY-01 Paywall") {
     PaywallView(onDismiss: {})
         .environmentObject(StoreKitService())
 }
 
-#Preview("S-PAY-01 Already Pro") {
-    let svc = StoreKitService()
-    return PaywallView(onDismiss: {})
-        .environmentObject(svc)
+#Preview("S-PAY-01 Paywall — dark") {
+    PaywallView(onDismiss: {})
+        .environmentObject(StoreKitService())
+        .preferredColorScheme(.dark)
 }

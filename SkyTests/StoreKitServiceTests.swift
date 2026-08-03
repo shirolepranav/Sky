@@ -3,11 +3,22 @@
 // Each test uses SKTestSession backed by Sky.storekit to simulate purchases
 // without hitting the real App Store.
 //
-// Prerequisites:
-//   1. Sky.storekit must be added to the SkyTests target's "Copy Bundle Resources"
-//      in Xcode (Product → Edit Scheme → Test → Options → StoreKit Configuration,
-//      or add the file to the test target's Build Phases).
-//   2. The scheme's StoreKit Configuration must point to Sky.storekit for sandbox use.
+// Sky Pro is a single non-consumable, so there are no tiers, no subscription
+// renewals, and no trial to assert on — only "does the entitlement resolve".
+//
+// ⚠️ RUN THESE ON iOS 26.2, NOT 26.5.
+// StoreKit Testing is broken in the **iOS 26.5 simulator runtime**: `SKTestSession`
+// connects to `com.apple.storekit.configuration.xpc` successfully, but storekitd
+// rejects the very first "save configuration" request with
+// `SKInternalErrorDomain Code=3`, leaving the session with an empty storefront and
+// zero products. The same code, config file, and scheme work perfectly on iOS 26.2.
+// It is an Apple runtime bug — not a project or configuration defect (verified by
+// erasing the device, restarting CoreSimulatorService, and trying every session
+// initializer and both a scheme reference and a test plan).
+//
+// `skipIfStoreKitTestingIsBroken()` detects that state and skips, so a bad runtime
+// reports honestly instead of failing red. On a good runtime nothing skips and all
+// assertions run for real. See CLAUDE.md → Build & verify for the destination to use.
 //
 // Roadmap Phase 14.
 
@@ -23,137 +34,123 @@ final class StoreKitServiceTests: XCTestCase {
 
     override func setUp() async throws {
         try await super.setUp()
-        session = try SKTestSession(configurationFileNamed: "Sky")
+        // Sky.storekit is a resource of the host app (Sky.app). It also lands in
+        // the xctest bundle, but resolving explicitly keeps this working either way.
+        let url = try XCTUnwrap(
+            Bundle.main.url(forResource: "Sky", withExtension: "storekit")
+                ?? Bundle(for: Self.self).url(forResource: "Sky", withExtension: "storekit"),
+            "Sky.storekit not found in the host app or test bundle"
+        )
+        session = try SKTestSession(contentsOf: url)
         session.resetToDefaultState()
         session.disableDialogs = true
         service = StoreKitService()
     }
 
     override func tearDown() async throws {
-        session.finish()
+        // SKTestSession has no explicit teardown call in the current SDK —
+        // clearing transactions and dropping the reference is the supported path.
+        session.clearTransactions()
         session = nil
         service = nil
         try await super.tearDown()
     }
 
-    // MARK: - Product loading
-
-    func testLoadProductsFetchesAll4() async throws {
-        try await service.loadProducts()
-        XCTAssertEqual(service.products.count, 4, "Expected monthly, annual, lifetime, founder")
+    /// Skips when the simulator runtime's StoreKit test service is non-functional
+    /// (see the iOS 26.5 note in the file header). An empty storefront is the
+    /// signature: a working session always reports one, e.g. "USA".
+    private func skipIfStoreKitTestingIsBroken() throws {
+        try XCTSkipIf(
+            session.storefront.isEmpty,
+            "StoreKit Testing is non-functional on this simulator runtime (known iOS 26.5 bug) — run these on iOS 26.2."
+        )
     }
 
-    func testProductsAreInCorrectOrder() async throws {
+    // MARK: - Product loading
+
+    func testLoadProductsFetchesTheSingleProSKU() async throws {
+        try skipIfStoreKitTestingIsBroken()
         try await service.loadProducts()
-        let ids = service.products.map { $0.id }
-        XCTAssertEqual(ids, [
-            AppBranding.monthlyProductID,
-            AppBranding.annualProductID,
-            AppBranding.lifetimeProductID,
-            AppBranding.founderLifetimeProductID,
-        ])
+        XCTAssertEqual(service.products.count, 1, "Sky Pro is one non-consumable")
+        XCTAssertEqual(service.products.first?.id, AppBranding.lifetimeProductID)
+    }
+
+    /// The convenience accessor the paywall reads must resolve after a load.
+    func testProProductResolvesAfterLoad() async throws {
+        try skipIfStoreKitTestingIsBroken()
+        XCTAssertNil(service.proProduct, "No product should resolve before loading")
+        try await service.loadProducts()
+        XCTAssertNotNil(service.proProduct)
+    }
+
+    /// Guards the price the paywall falls back to when StoreKit metadata is absent.
+    func testFallbackPriceMatchesTheStoreKitConfiguration() async throws {
+        try skipIfStoreKitTestingIsBroken()
+        try await service.loadProducts()
+        XCTAssertEqual(
+            FallbackPricing.price(for: AppBranding.lifetimeProductID)?.displayPrice,
+            service.proProduct?.displayPrice,
+            "FallbackPricing has drifted from Sky.storekit"
+        )
+    }
+
+    /// Nothing in the config may be a subscription — a renewing product would
+    /// re-introduce the auto-renew legal copy the paywall no longer shows.
+    func testProProductIsNotASubscription() async throws {
+        try skipIfStoreKitTestingIsBroken()
+        try await service.loadProducts()
+        XCTAssertNotNil(service.proProduct, "Precondition: the product must load")
+        XCTAssertNil(service.proProduct?.subscription,
+                     "Sky Pro must stay a non-consumable one-time purchase")
     }
 
     // MARK: - Purchase flow
 
-    func testPurchaseMonthlyMakesUserPro() async throws {
-        try await service.loadProducts()
-        try session.buyProduct(productIdentifier: AppBranding.monthlyProductID)
-        await service.refreshEntitlement()
-        XCTAssertTrue(service.isPro)
-        guard case .monthly = service.currentTier else {
-            XCTFail("Expected .monthly tier, got \(String(describing: service.currentTier))")
-            return
-        }
-    }
-
-    func testPurchaseLifetimeMakesUserPro() async throws {
+    func testPurchaseMakesUserPro() async throws {
+        try skipIfStoreKitTestingIsBroken()
         try await service.loadProducts()
         try session.buyProduct(productIdentifier: AppBranding.lifetimeProductID)
         await service.refreshEntitlement()
         XCTAssertTrue(service.isPro)
-        XCTAssertEqual(service.currentTier, .lifetime)
-    }
-
-    func testPurchaseFounderMakesUserProFounderTier() async throws {
-        try await service.loadProducts()
-        try session.buyProduct(productIdentifier: AppBranding.founderLifetimeProductID)
-        await service.refreshEntitlement()
-        XCTAssertTrue(service.isPro)
-        XCTAssertEqual(service.currentTier, .founderLifetime)
     }
 
     // MARK: - Entitlement detection
 
-    func testRefreshEntitlementDetectsActiveSubscription() async throws {
-        try session.buyProduct(productIdentifier: AppBranding.monthlyProductID)
-        await service.refreshEntitlement()
-        XCTAssertTrue(service.isPro)
-    }
-
-    func testRefreshEntitlementDetectsActiveLifetime() async throws {
+    func testRefreshEntitlementDetectsExistingPurchase() async throws {
+        try skipIfStoreKitTestingIsBroken()
         try session.buyProduct(productIdentifier: AppBranding.lifetimeProductID)
         await service.refreshEntitlement()
         XCTAssertTrue(service.isPro)
-        XCTAssertEqual(service.currentTier, .lifetime)
     }
 
+    /// Runs without a product — a fresh install must not be entitled.
     func testNoEntitlementWhenNoPurchase() async throws {
-        // Fresh session — no purchases
         await service.refreshEntitlement()
         XCTAssertFalse(service.isPro)
-        XCTAssertNil(service.currentTier)
     }
+
+    // Not covered: the refund/revocation path. `refreshEntitlement()` filters on
+    // `tx.revocationDate == nil`, but SKTestSession reports `identifier == 0` for
+    // its transactions here, so `refundTransaction(identifier:)` is a no-op and
+    // any such test would assert nothing. Verify refunds manually in sandbox.
 
     // MARK: - Restore
 
-    func testRestoreReturnsNothingFoundWhenEmpty() async throws {
-        let outcome = await service.restorePurchases()
-        // No purchases in test session → nothingFound
-        XCTAssertEqual(outcome, .nothingFound)
-    }
-
     func testRestoreFindsExistingPurchase() async throws {
-        try session.buyProduct(productIdentifier: AppBranding.lifetimeProductID)
-        // Simulate a fresh service (e.g., reinstall) — reset state without revoking
-        session.resetToDefaultState()
-        // On a real device, AppStore.sync() would restore; in tests refreshEntitlement re-scans
+        try skipIfStoreKitTestingIsBroken()
         try session.buyProduct(productIdentifier: AppBranding.lifetimeProductID)
         let outcome = await service.restorePurchases()
         XCTAssertEqual(outcome, .restored)
     }
 
-    // MARK: - Founder seats
-
-    func testFounderSeatsDecrementOnPurchase() async throws {
-        // Clear any stored count
-        UserDefaults.standard.removeObject(forKey: "founderSeatsRemaining")
-        service = StoreKitService()  // fresh service reads default (500)
-        XCTAssertEqual(service.founderSeatsRemaining, 500)
-
-        service.decrementFounderSeats()
-        XCTAssertEqual(service.founderSeatsRemaining, 499)
-    }
-
-    func testFounderSeatsDoNotGoBelowZero() async throws {
-        UserDefaults.standard.set(0, forKey: "founderSeatsRemaining")
-        service = StoreKitService()
-        service.decrementFounderSeats()
-        XCTAssertEqual(service.founderSeatsRemaining, 0)
+    /// Note: `AppStore.sync()` hangs on a runtime where StoreKit Testing is
+    /// broken, so the skip guard above must stay ahead of it.
+    func testRestoreReturnsNothingFoundWhenEmpty() async throws {
+        try skipIfStoreKitTestingIsBroken()
+        let outcome = await service.restorePurchases()
+        XCTAssertEqual(outcome, .nothingFound)
     }
 }
 
-// MARK: - RestoreOutcome: Equatable (for test assertions)
-
-extension RestoreOutcome: Equatable {
-    public static func == (lhs: RestoreOutcome, rhs: RestoreOutcome) -> Bool {
-        switch (lhs, rhs) {
-        case (.restored, .restored),
-             (.nothingFound, .nothingFound),
-             (.networkError, .networkError):
-            return true
-        default:
-            return false
-        }
-    }
-}
+// `RestoreOutcome` has no associated values, so Swift synthesizes `Equatable`
+// automatically — no manual conformance needed here.

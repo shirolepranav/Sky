@@ -7,69 +7,98 @@
 import XCTest
 @testable import Sky
 
+/// `VerificationDecisionEngine.evaluate` returns `Result<Void, FailureReason>`,
+/// which cannot be passed to `XCTAssertEqual`: `Void` isn't `Equatable`, and
+/// `Result`'s own conditional conformance (`Success: Equatable, Failure:
+/// Equatable`) can't be widened to cover `Success == Void` — a second
+/// conformance would be redundant and won't compile.
+///
+/// Collapsing to this shadow enum keeps every assertion a one-liner and keeps
+/// the failure output legible, e.g.
+/// `("failure(noSkyVisible)") is not equal to ("success")`.
+private enum Outcome: Equatable {
+    case success
+    case failure(FailureReason)
+
+    init(_ result: Result<Void, FailureReason>) {
+        switch result {
+        case .success:             self = .success
+        case .failure(let reason): self = .failure(reason)
+        }
+    }
+}
+
 final class VerificationDecisionEngineTests: XCTestCase {
 
     private let engine = VerificationDecisionEngine()
 
+    /// Evaluates and collapses to the Equatable `Outcome` in one step.
+    private func outcome(
+        sensor: SensorReading,
+        frame: FrameAnalysisResult,
+        nightModeEnabled: Bool = false
+    ) -> Outcome {
+        Outcome(engine.evaluate(sensor: sensor, frame: frame, nightModeEnabled: nightModeEnabled))
+    }
+
     // MARK: - Success
 
     func testAllSignalsPass() {
-        let result = engine.evaluate(sensor: makeSensor(), frame: makeFrame())
-        XCTAssertEqual(result, .success(()))
+        XCTAssertEqual(outcome(sensor: makeSensor(), frame: makeFrame()), .success)
     }
 
     // MARK: - Sensor failures (checks 1–5)
 
     func testGPSSpoofingFails() {
-        let result = engine.evaluate(sensor: makeSensor(gpsSpoofed: true), frame: makeFrame())
-        XCTAssertEqual(result, .failure(.gpsSpoofingDetected))
+        XCTAssertEqual(outcome(sensor: makeSensor(gpsSpoofed: true), frame: makeFrame()),
+                       .failure(.gpsSpoofingDetected))
     }
 
     func testOutsideDaylightWindowFails() {
-        let result = engine.evaluate(sensor: makeSensor(sunriseSunsetCheckPassed: false), frame: makeFrame())
-        XCTAssertEqual(result, .failure(.outsideDaylightWindow))
+        XCTAssertEqual(outcome(sensor: makeSensor(sunriseSunsetCheckPassed: false), frame: makeFrame()),
+                       .failure(.outsideDaylightWindow))
     }
 
     func testPoorGPSSignalFails() {
         // accuracy of 30.0 m exceeds the 25.0 m threshold
-        let result = engine.evaluate(sensor: makeSensor(gpsAccuracyAtBest: 30.0), frame: makeFrame())
-        XCTAssertEqual(result, .failure(.poorGPSSignal))
+        XCTAssertEqual(outcome(sensor: makeSensor(gpsAccuracyAtBest: 30.0), frame: makeFrame()),
+                       .failure(.poorGPSSignal))
     }
 
     func testNotEnoughMovementFails() {
         // Both speed (0.1) and altitude (0.3) below their respective thresholds
-        let result = engine.evaluate(
-            sensor: makeSensor(maxHorizontalSpeed: 0.1, altitudeChangeMeters: 0.3),
-            frame: makeFrame()
+        XCTAssertEqual(
+            outcome(sensor: makeSensor(maxHorizontalSpeed: 0.1, altitudeChangeMeters: 0.3),
+                    frame: makeFrame()),
+            .failure(.notEnoughMovement)
         )
-        XCTAssertEqual(result, .failure(.notEnoughMovement))
     }
 
     func testMovementFromAltitudeRescues() {
         // Speed below threshold, but altitude above threshold → should pass movement check
-        let result = engine.evaluate(
-            sensor: makeSensor(maxHorizontalSpeed: 0.1, altitudeChangeMeters: 1.0),
-            frame: makeFrame()
+        XCTAssertEqual(
+            outcome(sensor: makeSensor(maxHorizontalSpeed: 0.1, altitudeChangeMeters: 1.0),
+                    frame: makeFrame()),
+            .success
         )
-        XCTAssertEqual(result, .success(()))
     }
 
     func testNotBrightEnoughFails() {
         // exposure bias of −1.5 is below the −1.0 threshold
-        let result = engine.evaluate(sensor: makeSensor(medianExposureBias: -1.5), frame: makeFrame())
-        XCTAssertEqual(result, .failure(.notBrightEnough))
+        XCTAssertEqual(outcome(sensor: makeSensor(medianExposureBias: -1.5), frame: makeFrame()),
+                       .failure(.notBrightEnough))
     }
 
     // MARK: - Vision failures (checks 6–7)
 
     func testSceneNotOutdoorFails() {
-        let result = engine.evaluate(sensor: makeSensor(), frame: makeFrame(outdoorFrameRatio: 0.6))
-        XCTAssertEqual(result, .failure(.sceneNotOutdoor))
+        XCTAssertEqual(outcome(sensor: makeSensor(), frame: makeFrame(outdoorFrameRatio: 0.6)),
+                       .failure(.sceneNotOutdoor))
     }
 
     func testNoSkyVisibleFails() {
-        let result = engine.evaluate(sensor: makeSensor(), frame: makeFrame(maxSkyPixelPercent: 0.05))
-        XCTAssertEqual(result, .failure(.noSkyVisible))
+        XCTAssertEqual(outcome(sensor: makeSensor(), frame: makeFrame(maxSkyPixelPercent: 0.05)),
+                       .failure(.noSkyVisible))
     }
 
     // MARK: - Night Mode (Phase 15)
@@ -78,12 +107,12 @@ final class VerificationDecisionEngineTests: XCTestCase {
         // Same failing daylight signal passes once Night Mode waives that one check.
         let sensor = makeSensor(sunriseSunsetCheckPassed: false)
         XCTAssertEqual(
-            engine.evaluate(sensor: sensor, frame: makeFrame(), nightModeEnabled: false),
+            outcome(sensor: sensor, frame: makeFrame(), nightModeEnabled: false),
             .failure(.outsideDaylightWindow)
         )
         XCTAssertEqual(
-            engine.evaluate(sensor: sensor, frame: makeFrame(), nightModeEnabled: true),
-            .success(())
+            outcome(sensor: sensor, frame: makeFrame(), nightModeEnabled: true),
+            .success
         )
     }
 
@@ -94,7 +123,7 @@ final class VerificationDecisionEngineTests: XCTestCase {
             sunriseSunsetCheckPassed: false
         )
         XCTAssertEqual(
-            engine.evaluate(sensor: sensor, frame: makeFrame(), nightModeEnabled: true),
+            outcome(sensor: sensor, frame: makeFrame(), nightModeEnabled: true),
             .failure(.notEnoughMovement)
         )
     }
@@ -103,18 +132,20 @@ final class VerificationDecisionEngineTests: XCTestCase {
 
     func testGPSSpoofingBeatsAllOtherFailures() {
         // Even if every other signal fails, spoofing is reported first.
-        let result = engine.evaluate(
-            sensor: makeSensor(
-                gpsAccuracyAtBest: 100,
-                maxHorizontalSpeed: 0,
-                altitudeChangeMeters: 0,
-                medianExposureBias: -2.0,
-                gpsSpoofed: true,
-                sunriseSunsetCheckPassed: false
+        XCTAssertEqual(
+            outcome(
+                sensor: makeSensor(
+                    gpsAccuracyAtBest: 100,
+                    maxHorizontalSpeed: 0,
+                    altitudeChangeMeters: 0,
+                    medianExposureBias: -2.0,
+                    gpsSpoofed: true,
+                    sunriseSunsetCheckPassed: false
+                ),
+                frame: makeFrame(outdoorFrameRatio: 0, maxSkyPixelPercent: 0)
             ),
-            frame: makeFrame(outdoorFrameRatio: 0, maxSkyPixelPercent: 0)
+            .failure(.gpsSpoofingDetected)
         )
-        XCTAssertEqual(result, .failure(.gpsSpoofingDetected))
     }
 
     // MARK: - Factory helpers

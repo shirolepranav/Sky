@@ -119,10 +119,11 @@ All progress syncs across user's devices via CloudKit private database. No leade
 
 ### 4.9 Pricing & Paywall
 - **Free tier:** Block up to 2 apps, combined-limit mode only, daily verification, mascot, streaks
-- **Sky Pro Monthly:** $4.99/month — unlimited apps, per-app limits, all badges, all mascot states, full insights
-- **Sky Pro Annual:** $29.99/year (highlighted as default) — same as monthly + 7-day free trial on first install
-- **Sky Pro Lifetime:** $79 — same forever, no recurring
-- **Founder's Lifetime:** $39 — first 500 purchasers only, displayed in-app with remaining-seats counter, removed once cap is hit
+- **Sky Pro:** **$19.99 one-time** — unlimited apps, per-app limits, all badges, all mascot states, full insights, 24-hour pause
+- **One SKU only.** A single non-consumable (`com.sky.pro.lifetime`). No subscriptions, no tiers, no founder's edition. The target user is price-sensitive and subscription-averse (§2), so the pitch is "pay once, yours forever" rather than a tier ladder.
+- **No free trial.** Apple does not offer introductory offers on non-consumables; the free tier serves that purpose.
+- Regional pricing is configured per-storefront in App Store Connect. A launch discount is done by shipping at a lower base price and raising it later — not by adding a second SKU.
+- Restore purchases is required and always available (paywall + S-SET-07).
 - Implemented via StoreKit 2 directly (no RevenueCat in v1.0; can be added later)
 
 ### 4.10 Settings
@@ -247,11 +248,8 @@ struct AppBranding {
     static let cloudGrey = Color(hex: "B8C5D0")
     static let sunYellow = Color(hex: "FFD66B")
 
-    // Subscription product IDs (App Store Connect)
-    static let monthlyProductID = "com.sky.pro.monthly"
-    static let annualProductID = "com.sky.pro.annual"
+    // Product ID (App Store Connect) — one non-consumable, no subscriptions
     static let lifetimeProductID = "com.sky.pro.lifetime"
-    static let founderLifetimeProductID = "com.sky.pro.founder"
 }
 ```
 
