@@ -39,6 +39,14 @@ final class SkyDeviceActivityMonitor: DeviceActivityMonitor {
         static let warning    = "sky.notif.warning"
     }
 
+    // Event-name format mirrors DeviceActivityEvent.Name in DeviceActivityService.swift
+    // (this target cannot import the Sky module). Update both if it changes.
+    private enum EventName {
+        static let dailyWarning     = "dailyWarning"
+        static let perAppLimit      = "perApp_"
+        static let perAppWarning    = "perAppWarn_"
+    }
+
     private static let suiteName = "group.com.shirolepranav.sky"
 
     private var appGroupDefaults: UserDefaults {
@@ -65,7 +73,7 @@ final class SkyDeviceActivityMonitor: DeviceActivityMonitor {
 
         // Warning events carry a distinct name prefix; they never shield.
         let name = event.rawValue
-        if name == "dailyWarning" || name.hasPrefix("perAppWarn_") {
+        if name == EventName.dailyWarning || name.hasPrefix(EventName.perAppWarning) {
             if ud.object(forKey: Key.notifWarningEnabled) as? Bool ?? true {
                 postNotification(
                     id: NotifID.warning,
@@ -76,16 +84,31 @@ final class SkyDeviceActivityMonitor: DeviceActivityMonitor {
             return
         }
 
-        // Limit reached — shield the selected apps.
-        guard let data = ud.data(forKey: Key.selection),
-              let selection = try? JSONDecoder().decode(
-                  FamilyActivitySelection.self, from: data)
-        else { return }
-
         let store = ManagedSettingsStore()
-        store.shield.applications = selection.applicationTokens
-        if !selection.categoryTokens.isEmpty {
-            store.shield.applicationCategories = .specific(selection.categoryTokens)
+
+        if let token = Self.applicationToken(fromPerAppLimitEvent: name) {
+            // Per-app mode: shield ONLY the app that exhausted its own budget.
+            // Shielding the whole selection here would defeat the feature — one
+            // app hitting 15 minutes would lock an app budgeted for 4 hours.
+            //
+            // Union with what is already shielded so apps blocked by their own
+            // earlier events stay blocked. Categories carry no per-app budget
+            // (makePerAppEvents only emits events for individual app tokens), so
+            // they are deliberately left untouched.
+            var shielded = store.shield.applications ?? []
+            shielded.insert(token)
+            store.shield.applications = shielded
+        } else {
+            // Combined mode: one budget across everything in the selection.
+            guard let data = ud.data(forKey: Key.selection),
+                  let selection = try? JSONDecoder().decode(
+                      FamilyActivitySelection.self, from: data)
+            else { return }
+
+            store.shield.applications = selection.applicationTokens
+            if !selection.categoryTokens.isEmpty {
+                store.shield.applicationCategories = .specific(selection.categoryTokens)
+            }
         }
 
         ud.set(true, forKey: Key.isCurrentlyBlocked)
@@ -99,6 +122,21 @@ final class SkyDeviceActivityMonitor: DeviceActivityMonitor {
     }
 
     // MARK: - Helpers
+
+    /// Recovers the app token embedded in a per-app limit event name, or nil when
+    /// this isn't a per-app limit event (combined mode, or a warning).
+    ///
+    /// Mirrors `DeviceActivityEvent.Name.applicationToken(fromPerAppLimit:)` in
+    /// DeviceActivityService.swift — this target cannot import the Sky module, so
+    /// the two must be kept in sync. The app-side copy carries the unit tests.
+    private static func applicationToken(fromPerAppLimitEvent name: String) -> ApplicationToken? {
+        guard name.hasPrefix(EventName.perAppLimit) else { return nil }
+        let encoded = String(name.dropFirst(EventName.perAppLimit.count))
+        guard let data = Data(base64Encoded: encoded),
+              let token = try? JSONDecoder().decode(ApplicationToken.self, from: data)
+        else { return nil }
+        return token
+    }
 
     /// True while a 24-hour pause is still in effect.
     private func isPaused(_ ud: UserDefaults) -> Bool {

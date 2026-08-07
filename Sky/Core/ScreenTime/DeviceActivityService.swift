@@ -71,6 +71,25 @@ extension DeviceActivityEvent.Name {
         let data = (try? JSONEncoder().encode(token)) ?? Data()
         return DeviceActivityEvent.Name("perAppWarn_\(data.base64EncodedString())")
     }
+
+    /// Inverse of `perAppLimit(for:)` — recovers which app exhausted its budget so
+    /// only that app is shielded. Returns nil for every other event, including
+    /// `perAppWarning` names (a warning must never shield) and the combined-mode
+    /// names, which is what the caller uses to pick the combined branch.
+    ///
+    /// ⚠️ `SkyDeviceActivityMonitor` mirrors this parsing — it cannot import the
+    /// Sky module. Update both if the name format changes.
+    static func applicationToken(fromPerAppLimit name: DeviceActivityEvent.Name) -> ApplicationToken? {
+        // "perAppWarn_" does not carry the "perApp_" prefix (index 6 is 'W', not
+        // '_'), so warnings can't be mistaken for limits here — but the tests pin
+        // that, because the consequence would be shielding 30 minutes early.
+        guard name.rawValue.hasPrefix("perApp_") else { return nil }
+        let encoded = String(name.rawValue.dropFirst("perApp_".count))
+        guard let data = Data(base64Encoded: encoded),
+              let token = try? JSONDecoder().decode(ApplicationToken.self, from: data)
+        else { return nil }
+        return token
+    }
 }
 
 // MARK: - Service

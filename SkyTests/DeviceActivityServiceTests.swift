@@ -336,6 +336,42 @@ final class DeviceActivityServiceTests: XCTestCase {
         XCTAssertNil(store.monitoringConfigFingerprint)
     }
 
+    // MARK: - Per-app limit event decoding
+    //
+    // In per-app mode the monitor extension shields only the app whose own budget
+    // ran out. Everything hinges on this parser telling a per-app *limit* apart
+    // from a per-app *warning* and from the combined-mode names: mistaking a
+    // warning for a limit would shield 30 minutes early, and returning nil for a
+    // real per-app limit would fall through to the combined branch and shield
+    // every selected app.
+    //
+    // `ApplicationToken` cannot be constructed without a live Family Controls
+    // session (see testPerAppModeCreatesOneEventPerApp), so these cover the
+    // discrimination logic — the part that can silently do the wrong thing.
+
+    /// A warning must never be read as a limit, or apps lock 30 minutes early.
+    func testPerAppWarningNameIsNotDecodedAsALimit() {
+        let warning = DeviceActivityEvent.Name("perAppWarn_\(Data([1, 2, 3]).base64EncodedString())")
+        XCTAssertNil(DeviceActivityEvent.Name.applicationToken(fromPerAppLimit: warning))
+    }
+
+    /// Combined-mode names must return nil so the caller takes the combined branch
+    /// and shields the whole selection.
+    func testCombinedEventNamesDecodeToNil() {
+        XCTAssertNil(DeviceActivityEvent.Name.applicationToken(fromPerAppLimit: .dailyLimitReached))
+        XCTAssertNil(DeviceActivityEvent.Name.applicationToken(fromPerAppLimit: .dailyWarning))
+    }
+
+    /// Malformed payloads must fail closed rather than trap.
+    func testMalformedPerAppNamesDecodeToNil() {
+        for raw in ["perApp_", "perApp_not!base64", "perApp_\(Data([9, 9]).base64EncodedString())"] {
+            XCTAssertNil(
+                DeviceActivityEvent.Name.applicationToken(fromPerAppLimit: .init(raw)),
+                "\(raw) should not yield a token"
+            )
+        }
+    }
+
     /// The fingerprint must be stable across calls (Swift's seeded `hashValue`
     /// would change every launch) and sensitive to each configuration field.
     func testConfigFingerprintIsStableAndFieldSensitive() {
