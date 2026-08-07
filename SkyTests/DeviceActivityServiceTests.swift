@@ -13,24 +13,36 @@ import FamilyControls
 
 // MARK: - Mock
 
+private struct MockStartError: Error {}
+
 private final class MockDeviceActivityCenter: DeviceActivityScheduling {
     var capturedSchedule: DeviceActivitySchedule?
     var capturedEvents: [DeviceActivityEvent.Name: DeviceActivityEvent] = [:]
     var startCallCount = 0
     var stopCallCount  = 0
 
+    /// Mirrors the real center: registrations persist until stopped, so the
+    /// re-arm guard has something meaningful to consult.
+    var activities: [DeviceActivityName] = []
+
+    /// When set, `startMonitoring` throws instead of registering.
+    var startError: Error?
+
     func startMonitoring(
         _ activity: DeviceActivityName,
         during schedule: DeviceActivitySchedule,
         events: [DeviceActivityEvent.Name: DeviceActivityEvent]
     ) throws {
+        startCallCount += 1
+        if let startError { throw startError }
         capturedSchedule = schedule
         capturedEvents   = events
-        startCallCount  += 1
+        if !activities.contains(activity) { activities.append(activity) }
     }
 
     func stopMonitoring(_ activities: [DeviceActivityName]) {
         stopCallCount += 1
+        self.activities = []
     }
 }
 
@@ -140,5 +152,240 @@ final class DeviceActivityServiceTests: XCTestCase {
 
         XCTAssertGreaterThanOrEqual(mock.stopCallCount, 1)
         XCTAssertFalse(service.isMonitoring)
+    }
+
+    // MARK: - Budget-reset invariant (TIME_REMAINING_PLAN.md §2)
+    //
+    // A DeviceActivityEvent counts usage from when monitoring starts unless
+    // `includesPastActivity: true` is set, and SkyApp re-arms on every foreground.
+    // Without the two defences covered below, opening Sky would hand the user a
+    // fresh full budget and they would never be blocked.
+
+    /// Isolated suite so these tests never touch the App Group or `.standard`
+    /// (stale shared state is a known source of spurious failures — see CLAUDE.md).
+    private func makeIsolatedStore() -> (SharedDefaults, String) {
+        let name = "sky.tests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: name)!
+        return (SharedDefaults(defaults: defaults), name)
+    }
+
+    private func destroy(suite name: String) {
+        UserDefaults().removePersistentDomain(forName: name)
+    }
+
+    /// Every registered event must count usage accumulated since midnight, not
+    /// since the call — otherwise re-arming restarts the day's budget.
+    func testEventsIncludePastActivity() throws {
+        guard #available(iOS 17.4, *) else {
+            throw XCTSkip("includesPastActivity requires iOS 17.4")
+        }
+        let events = DeviceActivityService.makeEvents(
+            limitMode: "combined",
+            combinedLimitSeconds: 7200,
+            selection: FamilyActivitySelection(),
+            perAppLimitsData: nil
+        )
+
+        XCTAssertFalse(events.isEmpty)
+        for (name, event) in events {
+            XCTAssertTrue(
+                event.includesPastActivity,
+                "\(name.rawValue) would restart the day's usage count on re-arm"
+            )
+        }
+    }
+
+    /// The every-foreground call must not re-register when nothing changed.
+    func testRepeatedStartWithUnchangedConfigDoesNotReArm() throws {
+        let (store, suite) = makeIsolatedStore()
+        defer { destroy(suite: suite) }
+        store.selection = FamilyActivitySelection()
+        store.combinedLimitSeconds = 7200
+
+        let mock = MockDeviceActivityCenter()
+        let service = DeviceActivityService(center: mock, store: store)
+
+        try service.startMonitoring()
+        let stopsAfterFirst = mock.stopCallCount
+        try service.startMonitoring()
+        try service.startMonitoring()
+
+        XCTAssertEqual(mock.startCallCount, 1, "re-arming resets the usage counter")
+        XCTAssertEqual(mock.stopCallCount, stopsAfterFirst, "center must not be touched at all")
+        XCTAssertTrue(service.isMonitoring)
+    }
+
+    /// A fresh `DeviceActivityService` (cold launch) must also skip the re-arm —
+    /// the guard reads the center's registrations, not an in-memory flag.
+    func testColdLaunchWithUnchangedConfigDoesNotReArm() throws {
+        let (store, suite) = makeIsolatedStore()
+        defer { destroy(suite: suite) }
+        store.selection = FamilyActivitySelection()
+
+        let mock = MockDeviceActivityCenter()
+        try DeviceActivityService(center: mock, store: store).startMonitoring()
+
+        // Same persisted config + same center, brand-new service instance.
+        let relaunched = DeviceActivityService(center: mock, store: store)
+        try relaunched.startMonitoring()
+
+        XCTAssertEqual(mock.startCallCount, 1)
+        XCTAssertTrue(relaunched.isMonitoring, "state must be recovered from the center")
+    }
+
+    /// Editing the limit must still re-arm, or the new budget never takes effect.
+    func testChangedLimitReArms() throws {
+        let (store, suite) = makeIsolatedStore()
+        defer { destroy(suite: suite) }
+        store.selection = FamilyActivitySelection()
+        store.combinedLimitSeconds = 7200
+
+        let mock = MockDeviceActivityCenter()
+        let service = DeviceActivityService(center: mock, store: store)
+
+        try service.startMonitoring()
+        store.combinedLimitSeconds = 3600
+        try service.startMonitoring()
+
+        XCTAssertEqual(mock.startCallCount, 2)
+        XCTAssertEqual(mock.capturedEvents[.dailyLimitReached]?.threshold.second, 3600)
+    }
+
+    /// Switching limit mode changes the event set, so it must re-arm too.
+    func testChangedLimitModeReArms() throws {
+        let (store, suite) = makeIsolatedStore()
+        defer { destroy(suite: suite) }
+        store.selection = FamilyActivitySelection()
+
+        let mock = MockDeviceActivityCenter()
+        let service = DeviceActivityService(center: mock, store: store)
+
+        try service.startMonitoring()
+        store.limitMode = "perApp"
+        try service.startMonitoring()
+
+        XCTAssertEqual(mock.startCallCount, 2)
+    }
+
+    /// If the system dropped our activity (entitlement revoked and re-granted,
+    /// iOS upgrade), an unchanged fingerprint must not stop us re-registering.
+    func testDroppedActivityReArmsDespiteMatchingFingerprint() throws {
+        let (store, suite) = makeIsolatedStore()
+        defer { destroy(suite: suite) }
+        store.selection = FamilyActivitySelection()
+
+        let mock = MockDeviceActivityCenter()
+        let service = DeviceActivityService(center: mock, store: store)
+
+        try service.startMonitoring()
+        mock.activities = []          // system forgot us; fingerprint still matches
+        try service.startMonitoring()
+
+        XCTAssertEqual(mock.startCallCount, 2)
+    }
+
+    /// `force: true` is the escape hatch for the debug menu and repair paths.
+    func testForceAlwaysReArms() throws {
+        let (store, suite) = makeIsolatedStore()
+        defer { destroy(suite: suite) }
+        store.selection = FamilyActivitySelection()
+
+        let mock = MockDeviceActivityCenter()
+        let service = DeviceActivityService(center: mock, store: store)
+
+        try service.startMonitoring()
+        try service.startMonitoring(force: true)
+
+        XCTAssertEqual(mock.startCallCount, 2)
+    }
+
+    /// A failed registration must not leave a fingerprint claiming the current
+    /// configuration is armed — the next attempt has to actually retry.
+    func testFailedStartClearsFingerprintSoNextCallRetries() {
+        let (store, suite) = makeIsolatedStore()
+        defer { destroy(suite: suite) }
+        store.selection = FamilyActivitySelection()
+
+        let mock = MockDeviceActivityCenter()
+        mock.startError = MockStartError()
+        let service = DeviceActivityService(center: mock, store: store)
+
+        XCTAssertThrowsError(try service.startMonitoring())
+        XCTAssertNil(store.monitoringConfigFingerprint)
+        XCTAssertFalse(service.isMonitoring)
+
+        XCTAssertThrowsError(try service.startMonitoring())
+        XCTAssertEqual(mock.startCallCount, 2, "a throw must not be cached as success")
+    }
+
+    /// No selection means nothing to monitor: tear down and forget the fingerprint.
+    func testNoSelectionStopsMonitoringAndClearsFingerprint() throws {
+        let (store, suite) = makeIsolatedStore()
+        defer { destroy(suite: suite) }
+        store.selection = FamilyActivitySelection()
+
+        let mock = MockDeviceActivityCenter()
+        let service = DeviceActivityService(center: mock, store: store)
+        try service.startMonitoring()
+
+        store.familyActivitySelection = nil
+        try service.startMonitoring()
+
+        XCTAssertEqual(mock.startCallCount, 1)
+        XCTAssertFalse(service.isMonitoring)
+        XCTAssertNil(store.monitoringConfigFingerprint)
+    }
+
+    /// The fingerprint must be stable across calls (Swift's seeded `hashValue`
+    /// would change every launch) and sensitive to each configuration field.
+    func testConfigFingerprintIsStableAndFieldSensitive() {
+        let base = DeviceActivityService.configFingerprint(
+            selectionData: Data([1, 2, 3]),
+            limitMode: "combined",
+            combinedLimitSeconds: 7200,
+            perAppLimitsData: nil
+        )
+
+        XCTAssertEqual(base, DeviceActivityService.configFingerprint(
+            selectionData: Data([1, 2, 3]),
+            limitMode: "combined",
+            combinedLimitSeconds: 7200,
+            perAppLimitsData: nil
+        ))
+
+        XCTAssertNotEqual(base, DeviceActivityService.configFingerprint(
+            selectionData: Data([1, 2, 4]),
+            limitMode: "combined",
+            combinedLimitSeconds: 7200,
+            perAppLimitsData: nil
+        ))
+        XCTAssertNotEqual(base, DeviceActivityService.configFingerprint(
+            selectionData: Data([1, 2, 3]),
+            limitMode: "perApp",
+            combinedLimitSeconds: 7200,
+            perAppLimitsData: nil
+        ))
+        XCTAssertNotEqual(base, DeviceActivityService.configFingerprint(
+            selectionData: Data([1, 2, 3]),
+            limitMode: "combined",
+            combinedLimitSeconds: 3600,
+            perAppLimitsData: nil
+        ))
+        XCTAssertNotEqual(base, DeviceActivityService.configFingerprint(
+            selectionData: Data([1, 2, 3]),
+            limitMode: "combined",
+            combinedLimitSeconds: 7200,
+            perAppLimitsData: Data([9])
+        ))
+
+        // nil and empty Data are different configurations, not the same one.
+        XCTAssertNotEqual(
+            DeviceActivityService.configFingerprint(
+                selectionData: nil, limitMode: "combined",
+                combinedLimitSeconds: 7200, perAppLimitsData: nil),
+            DeviceActivityService.configFingerprint(
+                selectionData: Data(), limitMode: "combined",
+                combinedLimitSeconds: 7200, perAppLimitsData: nil)
+        )
     }
 }

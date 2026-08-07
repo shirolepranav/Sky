@@ -54,6 +54,8 @@ struct SharedDefaults {
         static let notificationPrimerShown = "notif_primer_shown"
         // Phase 16 — appearance (light/dark/system) preference
         static let appearanceMode = "appearance_mode"
+        // Re-arm guard for DeviceActivity monitoring (TIME_REMAINING_PLAN.md §2)
+        static let monitoringConfigFingerprint = "monitoring_config_fingerprint"
     }
 
     // MARK: Configuration (written by main app, read by extensions)
@@ -236,6 +238,20 @@ struct SharedDefaults {
     var appearanceModeRaw: String {
         get { defaults.string(forKey: Key.appearanceMode) ?? "system" }
         nonmutating set { defaults.set(newValue, forKey: Key.appearanceMode) }
+    }
+
+    // MARK: DeviceActivity re-arm guard (TIME_REMAINING_PLAN.md §2)
+
+    /// Digest of the configuration `.daily` monitoring was last registered with,
+    /// or nil when nothing is armed. `DeviceActivityService.startMonitoring` skips
+    /// re-registering while this matches the current configuration, so the
+    /// every-foreground call in SkyApp can't restart the day's usage accumulation.
+    ///
+    /// App-side only — no extension reads it — but it lives here because it must
+    /// survive relaunch alongside the configuration it describes.
+    var monitoringConfigFingerprint: String? {
+        get { defaults.string(forKey: Key.monitoringConfigFingerprint) }
+        nonmutating set { defaults.set(newValue, forKey: Key.monitoringConfigFingerprint) }
     }
 
     // MARK: Typed selection accessor

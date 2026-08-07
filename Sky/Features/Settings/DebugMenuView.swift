@@ -12,6 +12,7 @@ struct DebugMenuView: View {
     @EnvironmentObject private var mascotManager: MascotStateManager
     @EnvironmentObject private var storeKit: StoreKitService
     @EnvironmentObject private var streakManager: StreakManager
+    @EnvironmentObject private var deviceActivity: DeviceActivityService
 
     @State private var store = SharedDefaults()
     @State private var toast = ""
@@ -27,6 +28,7 @@ struct DebugMenuView: View {
             Section("State") {
                 Button("Force midnight reset") { forceMidnightReset() }
                 Button("Force shield apply") { forceShieldApply() }
+                Button("Force re-arm monitoring") { forceReArmMonitoring() }
                 #if DEBUG
                 Menu("Force mascot state") {
                     ForEach(MascotState.allCases, id: \.self) { state in
@@ -120,6 +122,19 @@ struct DebugMenuView: View {
         flash("Shield applied")
     }
 
+    /// Bypasses the configuration-fingerprint guard in `DeviceActivityService`.
+    /// Normal foregrounds deliberately skip re-registering so the day's usage
+    /// accumulation isn't reset (TIME_REMAINING_PLAN.md §2) — this is the escape
+    /// hatch for verifying a schedule change on device.
+    private func forceReArmMonitoring() {
+        do {
+            try deviceActivity.startMonitoring(force: true)
+            flash(deviceActivity.isMonitoring ? "Monitoring re-armed" : "Nothing to monitor")
+        } catch {
+            flash("Re-arm failed: \(error.localizedDescription)")
+        }
+    }
+
     private func countTempVideos() {
         let dir = FileManager.default.temporaryDirectory
         let files = (try? FileManager.default.contentsOfDirectory(atPath: dir.path)) ?? []
@@ -172,4 +187,5 @@ struct DebugMenuView: View {
         .environmentObject(MascotStateManager())
         .environmentObject(StoreKitService())
         .environmentObject(StreakManager())
+        .environmentObject(DeviceActivityService())
 }
