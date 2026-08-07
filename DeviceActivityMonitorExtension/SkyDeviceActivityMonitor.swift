@@ -164,6 +164,13 @@ final class SkyDeviceActivityMonitor: DeviceActivityMonitor {
     /// (Technical Spec §7.4, Sky_App_Workflow.md J-06; Phase 12 streak hand-off).
     override func intervalDidStart(for activity: DeviceActivityName) {
         let ud = appGroupDefaults
+        let today = Self.dayStamp(for: Date())
+
+        // 0. Idempotence guard. MidnightResetRecovery performs this same reset
+        //    app-side when this callback is missed. If it already ran for today,
+        //    repeating the hand-off would snapshot the *already-cleared* flags as
+        //    "yesterday" and StreakManager would zero a live streak.
+        guard ud.string(forKey: Key.todayResetToken) != today else { return }
 
         // 1. Snapshot yesterday's flags BEFORE clearing — StreakManager reads
         //    these on the next main-app foreground (the extension runs in a separate
@@ -183,10 +190,23 @@ final class SkyDeviceActivityMonitor: DeviceActivityMonitor {
         ud.set(false, forKey: Key.didVerifyToday)
         ud.set(false, forKey: Key.didEmergencyUnlock)
 
-        // todayResetToken: YYYY-MM-DD in local time, invalidates stale cached state.
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withFullDate]
-        ud.set(formatter.string(from: Date()), forKey: Key.todayResetToken)
+        ud.set(today, forKey: Key.todayResetToken)
+    }
+
+    /// `YYYY-MM-DD` in **local** time, matching the interval start of the
+    /// DeviceActivitySchedule.
+    ///
+    /// Mirrors `MidnightResetRecovery.dayStamp(for:timeZone:)` in the Sky module,
+    /// which this target cannot import — both must produce identical strings.
+    /// (Previously this used `ISO8601DateFormatter`, which formats in UTC and so
+    /// stamped the wrong calendar day for time zones far from GMT. Nothing read
+    /// the value then, so changing the format breaks no existing consumer.)
+    private static func dayStamp(for date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = .current
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter.string(from: date)
     }
 
     // MARK: - Interval end

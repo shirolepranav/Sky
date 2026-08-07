@@ -108,6 +108,11 @@ struct SkyApp: App {
                 if phase == .active {
                     coordinator.familyControls.refreshStatus()
                     coordinator.recomputeRoute()
+                    // Run the midnight reset ourselves if the monitor extension's
+                    // intervalDidStart was missed (J-06 safety net). Must precede
+                    // both the mascot refresh and the streak hand-off below, which
+                    // read the very flags it clears.
+                    MidnightResetRecovery.runIfNeeded()
                     mascotManager.refreshState()
                     // Consume the midnight-reset hand-off from DeviceActivityMonitor
                     // and re-evaluate streak for the previous day (Phase 12).
@@ -127,6 +132,11 @@ struct SkyApp: App {
                 }
             }
             .task {
+                // Cold launch doesn't produce a scenePhase *change*, so the
+                // recovery above wouldn't run until the first background round
+                // trip. Both calls are no-ops when there is nothing pending.
+                MidnightResetRecovery.runIfNeeded()
+                streakManager.refreshOnForeground()
                 // Link streak manager to CloudKit on first appear and kick off
                 // the initial fetch (non-blocking — UI uses local cache).
                 streakManager.setCloudKit(cloudKitSync)
