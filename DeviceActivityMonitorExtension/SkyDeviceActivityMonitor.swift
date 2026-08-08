@@ -6,6 +6,11 @@
 // This target cannot import the Sky module. App Group state is accessed directly
 // via raw UserDefaults keys that mirror SharedDefaults.Key — the single source of
 // truth lives in SharedDefaults.swift; update both if keys change.
+//
+// The midnight reset runs from two triggers here (`intervalDidStart` and, as a
+// catch-up, `eventDidReachThreshold`) plus a third app-side in
+// MidnightResetRecovery. All three share the `today_reset_token` day stamp and
+// must stay idempotent against it.
 
 import DeviceActivity
 import ManagedSettings
@@ -24,6 +29,10 @@ final class SkyDeviceActivityMonitor: DeviceActivityMonitor {
         static let didVerifyToday        = "today_verified"
         static let didEmergencyUnlock    = "today_emergency_used"
         static let todayResetToken       = "today_reset_token"
+        static let todayStateDay         = "today_state_day"
+        static let shieldedAppTokens     = "shielded_app_tokens"
+        // Diagnostic trail — mirrors ShieldAudit.key in the Sky module.
+        static let shieldAuditLog        = "shield_audit_log"
         // Phase 12 — midnight-reset hand-off for StreakManager (mirrors SharedDefaults.Key)
         static let pendingMidnightReset  = "streak_pending_midnight_reset"
         static let yesterdayDidVerify    = "streak_yesterday_verified"
@@ -68,6 +77,16 @@ final class SkyDeviceActivityMonitor: DeviceActivityMonitor {
     ) {
         let ud = appGroupDefaults
 
+        // Roll the day over first if `intervalDidStart` was missed, so the day
+        // stamp is current *before* any of today's state is written below.
+        // Without this the reset lands later, on the first main-app foreground —
+        // which is exactly the "Go outside to unlock" tap — and lifts a shield
+        // that was applied minutes earlier, today.
+        //
+        // Deliberately above the pause check: the warning branch returns early,
+        // and a paused day still has to roll over.
+        performMidnightResetIfNeeded(ud)
+
         // Pause (Pro): suppress all blocking + notifications for 24h.
         if isPaused(ud) { return }
 
@@ -98,6 +117,8 @@ final class SkyDeviceActivityMonitor: DeviceActivityMonitor {
             var shielded = store.shield.applications ?? []
             shielded.insert(token)
             store.shield.applications = shielded
+            persistShieldedTokens(shielded, in: ud)
+            auditShield("applied", source: "monitor.threshold", appCount: shielded.count, in: ud)
         } else {
             // Combined mode: one budget across everything in the selection.
             guard let data = ud.data(forKey: Key.selection),
@@ -109,9 +130,19 @@ final class SkyDeviceActivityMonitor: DeviceActivityMonitor {
             if !selection.categoryTokens.isEmpty {
                 store.shield.applicationCategories = .specific(selection.categoryTokens)
             }
+            persistShieldedTokens(selection.applicationTokens, in: ud)
+            auditShield(
+                "applied",
+                source: "monitor.threshold",
+                appCount: selection.applicationTokens.count,
+                in: ud
+            )
         }
 
         ud.set(true, forKey: Key.isCurrentlyBlocked)
+        // Marks the block as belonging to *today*, so a late midnight reset in the
+        // main app knows not to undo it (MidnightResetRecovery).
+        ud.set(Self.dayStamp(for: Date()), forKey: Key.todayStateDay)
 
         // Block-start notification is always on (PRD §4.11).
         postNotification(
@@ -138,6 +169,30 @@ final class SkyDeviceActivityMonitor: DeviceActivityMonitor {
         return token
     }
 
+    /// Records the exact token set now shielded, so `ShieldService.reconcile` in
+    /// the main app can restore it without guessing. In per-app mode that set is
+    /// a subset of the selection, and re-shielding the whole selection would lock
+    /// apps that are still inside their own budget.
+    private func persistShieldedTokens(_ tokens: Set<ApplicationToken>, in ud: UserDefaults) {
+        guard let data = try? JSONEncoder().encode(tokens) else { return }
+        ud.set(data, forKey: Key.shieldedAppTokens)
+    }
+
+    /// Appends one line to the shield audit trail.
+    ///
+    /// ⚠️ Mirrors `ShieldAudit.record` in the Sky module, which this target cannot
+    /// import — the `"<epoch>|<action>|<source>|<count>"` shape, the `|` separator
+    /// and the 60-entry cap must match, or the app-side reader drops the line.
+    ///
+    /// Privacy: count and source only, never app names or tokens.
+    private func auditShield(_ action: String, source: String, appCount: Int, in ud: UserDefaults) {
+        let line = "\(Int(Date().timeIntervalSince1970))|\(action)|\(source)|\(appCount)"
+        var lines = ud.stringArray(forKey: Key.shieldAuditLog) ?? []
+        lines.append(line)
+        if lines.count > 60 { lines.removeFirst(lines.count - 60) }
+        ud.set(lines, forKey: Key.shieldAuditLog)
+    }
+
     /// True while a 24-hour pause is still in effect.
     private func isPaused(_ ud: UserDefaults) -> Bool {
         guard let start = ud.object(forKey: Key.pauseStartedAt) as? Date else { return false }
@@ -158,19 +213,52 @@ final class SkyDeviceActivityMonitor: DeviceActivityMonitor {
 
     // MARK: - Midnight reset
 
-    /// Called at 00:00 local time (intervalStart of the repeating schedule).
-    /// Captures yesterday's flags for StreakManager, clears all shields, and resets
-    /// every per-day flag so the next day starts fresh
-    /// (Technical Spec §7.4, Sky_App_Workflow.md J-06; Phase 12 streak hand-off).
+    /// Called at 00:00 local time (intervalStart of the repeating schedule), and
+    /// again whenever monitoring is re-armed inside the interval.
+    /// (Technical Spec §7.4, Sky_App_Workflow.md J-06; Phase 12 streak hand-off.)
     override func intervalDidStart(for activity: DeviceActivityName) {
-        let ud = appGroupDefaults
+        performMidnightResetIfNeeded(appGroupDefaults)
+    }
+
+    /// Captures yesterday's flags for StreakManager, clears all shields, and
+    /// resets every per-day flag so the next day starts fresh.
+    ///
+    /// Callable from both `intervalDidStart` (the intended 00:00 trigger) and
+    /// `eventDidReachThreshold` (the catch-up trigger). The catch-up call is what
+    /// keeps the reset *ahead* of today's state rather than behind it: when the
+    /// 00:00 callback is missed, the day's first threshold event rolls the day
+    /// over before writing `today_blocked`. Otherwise the reset falls to
+    /// `MidnightResetRecovery` on the next main-app foreground — which is the tap
+    /// on "Go outside to unlock" — and lifts a shield applied minutes earlier.
+    ///
+    /// No-ops unless the stored day stamp is behind today.
+    private func performMidnightResetIfNeeded(_ ud: UserDefaults) {
         let today = Self.dayStamp(for: Date())
+        let stored = ud.string(forKey: Key.todayResetToken) ?? ""
 
         // 0. Idempotence guard. MidnightResetRecovery performs this same reset
         //    app-side when this callback is missed. If it already ran for today,
         //    repeating the hand-off would snapshot the *already-cleared* flags as
         //    "yesterday" and StreakManager would zero a live streak.
-        guard ud.string(forKey: Key.todayResetToken) != today else { return }
+        guard stored != today else { return }
+
+        // Fresh install (or a wipe): adopt today without inventing a yesterday,
+        // mirroring MidnightResetRecovery.Outcome.adoptedFirstStamp. Handing off
+        // flags that were never set would evaluate a day that did not happen.
+        guard !stored.isEmpty else {
+            ud.set(today, forKey: Key.todayResetToken)
+            return
+        }
+
+        // A stamp *ahead* of today means the clock moved backwards, not that a day
+        // has passed — adopt it and clear nothing, or winding a device back would
+        // lift a live shield. `yyyy-MM-dd` sorts chronologically, so a string
+        // comparison is enough here; the app-side twin parses dates for the same
+        // check (MidnightResetRecovery.Outcome.adoptedFutureStamp).
+        guard stored <= today else {
+            ud.set(today, forKey: Key.todayResetToken)
+            return
+        }
 
         // 1. Snapshot yesterday's flags BEFORE clearing — StreakManager reads
         //    these on the next main-app foreground (the extension runs in a separate
@@ -185,11 +273,15 @@ final class SkyDeviceActivityMonitor: DeviceActivityMonitor {
         let store = ManagedSettingsStore()
         store.shield.applications = nil
         store.shield.applicationCategories = nil
+        ud.removeObject(forKey: Key.shieldedAppTokens)
+        auditShield("cleared", source: "monitor.intervalStart", appCount: 0, in: ud)
 
         ud.set(false, forKey: Key.isCurrentlyBlocked)
         ud.set(false, forKey: Key.didVerifyToday)
         ud.set(false, forKey: Key.didEmergencyUnlock)
 
+        // The cleared flags now describe today, not yesterday.
+        ud.set(today, forKey: Key.todayStateDay)
         ud.set(today, forKey: Key.todayResetToken)
     }
 

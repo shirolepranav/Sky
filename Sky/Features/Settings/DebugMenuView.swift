@@ -1,9 +1,17 @@
 // DebugMenuView.swift
-// S-SET-09 — Hidden developer/QA utilities. Reachable only after the 7-tap version
-// unlock (S-SET-08) or, in Debug builds, a long-press on Nimbus. Each row triggers
-// a side effect and shows a result toast. Never listed in the App Store surface.
+// S-SET-09 — Hidden developer/QA utilities. Reachable after the 7-tap version
+// unlock (S-SET-08) or a long-press on Nimbus. Each row triggers a side effect
+// and shows a result toast. Never listed in the App Store surface.
 // Sky_App_Workflow.md S-SET-09; Roadmap Phase 0, 1.
+//
+// ⚠️ DEBUG BUILDS ONLY. This used to ship in Release behind nothing but the
+// 7-tap gesture, which made "Force midnight reset" a one-tap unblock for any
+// user who read a support thread — the shield is the product, so it cannot have
+// a shipping bypass. `SettingsView.debugSection` and the `AboutView` tap counter
+// are gated to match. Keep the #Preview inside the #if or Release archives break
+// (CLAUDE.md, Build & verify §2).
 
+#if DEBUG
 import SwiftUI
 import ManagedSettings
 import FamilyControls
@@ -29,7 +37,8 @@ struct DebugMenuView: View {
                 Button("Force midnight reset") { forceMidnightReset() }
                 Button("Force shield apply") { forceShieldApply() }
                 Button("Force re-arm monitoring") { forceReArmMonitoring() }
-                #if DEBUG
+                Button("Rewind day stamps to yesterday") { forceStaleDayStamp() }
+                Button("Run shield reconcile") { runReconcile() }
                 Menu("Force mascot state") {
                     ForEach(MascotState.allCases, id: \.self) { state in
                         Button(state.displayName) {
@@ -38,10 +47,8 @@ struct DebugMenuView: View {
                         }
                     }
                 }
-                #endif
             }
 
-            #if DEBUG
             Section("Pro demo account") {
                 Toggle("Simulate Pro", isOn: Binding(
                     get: { storeKit.isPro },
@@ -76,9 +83,9 @@ struct DebugMenuView: View {
                     flash("Weekly-insights data added")
                 }
             }
-            #endif
 
             Section("Inspect") {
+                NavigationLink("Shield history") { ShieldHistoryView() }
                 Button("View temp video files") { countTempVideos() }
                 Button("Dump SharedDefaults") { dumpDefaults() }
             }
@@ -105,22 +112,44 @@ struct DebugMenuView: View {
         store.isCurrentlyBlocked = false
         store.didVerifyToday = false
         store.didEmergencyUnlockToday = false
-        ShieldService.unlockApps()
+        store.stampTodayState()
+        store.todayResetToken = MidnightResetRecovery.dayStamp(for: Date())
+        ShieldService.unlockApps(source: .debug, store: store)
         mascotManager.refreshState()
         flash("Midnight reset applied")
     }
 
+    /// Rewinds the day stamps to yesterday, reproducing the state a device is in
+    /// when `intervalDidStart` was missed overnight — the setup for the "Go
+    /// outside to unlock" unlock bug. Pair with "Force shield apply".
+    private func forceStaleDayStamp() {
+        let yesterday = Date().addingTimeInterval(-24 * 60 * 60)
+        let stamp = MidnightResetRecovery.dayStamp(for: yesterday)
+        store.todayResetToken = stamp
+        store.todayStateDay = stamp
+        flash("Day stamps → \(stamp)")
+    }
+
     private func forceShieldApply() {
         guard let selection = store.selection else { flash("No selection to shield"); return }
-        let managed = ManagedSettingsStore()
-        managed.shield.applications = selection.applicationTokens
-        if !selection.categoryTokens.isEmpty {
-            managed.shield.applicationCategories = .specific(selection.categoryTokens)
-        }
+        ShieldService.applyShield(
+            tokens: selection.applicationTokens,
+            categories: selection.categoryTokens,
+            source: .debug,
+            store: store
+        )
         store.isCurrentlyBlocked = true
+        store.stampTodayState()
         mascotManager.refreshState()
         flash("Shield applied")
     }
+
+    private func runReconcile() {
+        let restored = ShieldService.reconcile(store: store)
+        mascotManager.refreshState()
+        flash(restored ? "Shield restored" : "Nothing to restore")
+    }
+
 
     /// Bypasses the configuration-fingerprint guard in `DeviceActivityService`.
     /// Normal foregrounds deliberately skip re-registering so the day's usage
@@ -146,7 +175,8 @@ struct DebugMenuView: View {
         let summary = """
         blocked=\(store.isCurrentlyBlocked) verified=\(store.didVerifyToday) \
         emergency=\(store.didEmergencyUnlockToday) paused=\(store.isPaused) \
-        night=\(store.nightModeEnabled) limit=\(store.combinedLimitSeconds)s
+        night=\(store.nightModeEnabled) limit=\(store.combinedLimitSeconds)s \
+        resetToken=\(store.todayResetToken) stateDay=\(store.todayStateDay)
         """
         print("[SharedDefaults] \(summary)")
         flash("Dumped to console")
@@ -165,13 +195,11 @@ struct DebugMenuView: View {
         store.isCurrentlyBlocked = false
         store.pauseStartedAt = nil
         store.lastPauseDate = nil
-        #if DEBUG
         // Reset the live managers too, so the wipe is reflected without a relaunch,
         // and clear the on-device emergency/pause log seeded by the demo account.
         streakManager.debugReplaceProgress(UserProgress())
         EmergencyLogStore.shared.debugClear()
         storeKit.debugSetPro(false)
-        #endif
         wipeTaps = 0
         flash("Local progress wiped")
     }
@@ -189,3 +217,4 @@ struct DebugMenuView: View {
         .environmentObject(StreakManager())
         .environmentObject(DeviceActivityService())
 }
+#endif

@@ -36,6 +36,12 @@
 // Phase 14: StoreKitService created here and injected as an environment object.
 // listenForTransactions() starts a long-running background task; products and
 // entitlements are refreshed on every app foreground.
+//
+// ⚠️ The order inside the `.active` handler is load-bearing. The midnight reset
+// runs first (it clears the flags everything below reads), then
+// ShieldService.reconcile repairs the shield from those flags, and only then is
+// the shield-button deep link consumed. Reconciling after the deep link would
+// present the verification cover over apps that are momentarily unblocked.
 
 import SwiftUI
 
@@ -113,6 +119,12 @@ struct SkyApp: App {
                     // both the mascot refresh and the streak hand-off below, which
                     // read the very flags it clears.
                     MidnightResetRecovery.runIfNeeded()
+                    // Repair the shield if today's state says blocked but the
+                    // ManagedSettings store disagrees. Must follow the reset (so
+                    // it doesn't re-apply a shield the new day just cleared) and
+                    // precede the deep link (so the verification cover is never
+                    // presented over already-open apps).
+                    ShieldService.reconcile()
                     mascotManager.refreshState()
                     // Consume the midnight-reset hand-off from DeviceActivityMonitor
                     // and re-evaluate streak for the previous day (Phase 12).
@@ -134,9 +146,14 @@ struct SkyApp: App {
             .task {
                 // Cold launch doesn't produce a scenePhase *change*, so the
                 // recovery above wouldn't run until the first background round
-                // trip. Both calls are no-ops when there is nothing pending.
+                // trip. All three calls are no-ops when there is nothing pending.
                 MidnightResetRecovery.runIfNeeded()
+                ShieldService.reconcile()
                 streakManager.refreshOnForeground()
+                // A shield-button tap that cold-launches Sky must still land on
+                // the verification flow — otherwise the user arrives on Today
+                // with the tap silently swallowed and the flag left pending.
+                consumePendingDeepLink()
                 // Link streak manager to CloudKit on first appear and kick off
                 // the initial fetch (non-blocking — UI uses local cache).
                 streakManager.setCloudKit(cloudKitSync)
@@ -198,7 +215,12 @@ struct SkyApp: App {
 
     /// Reads and clears the pending shield-button destination from the App Group,
     /// presenting the matching screen. No-op when nothing is pending.
+    ///
+    /// Called from both `.task` (cold launch) and the `scenePhase` handler (warm
+    /// return); clearing the key on the way through makes the second call a no-op.
     private func consumePendingDeepLink() {
+        // A cover is already up — don't swap it out from under the user.
+        guard deepLinkDestination == nil else { return }
         let store = SharedDefaults()
         guard let pending = store.pendingDeepLink,
               let link = SkyDeepLink(rawValue: pending)

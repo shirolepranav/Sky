@@ -147,8 +147,11 @@ struct PauseSkyView: View {
         store.pauseStartedAt = now
         store.lastPauseDate = now
         store.isCurrentlyBlocked = false
+        // Marks this state as today's, so a late midnight reset doesn't mistake it
+        // for yesterday's and clear it (MidnightResetRecovery).
+        store.stampTodayState(now: now)
 
-        ShieldService.unlockApps()
+        ShieldService.unlockApps(source: .pause, store: store)
 
         let cal = Calendar.current
         EmergencyLogStore.shared.add(

@@ -74,5 +74,36 @@ final class SharedDefaultsTests: XCTestCase {
         XCTAssertFalse(store.isCurrentlyBlocked)
         XCTAssertFalse(store.didVerifyToday)
         XCTAssertEqual(store.todayResetToken, "")
+        XCTAssertEqual(store.todayStateDay, "")
+        XCTAssertNil(store.shieldedAppTokens)
+    }
+
+    /// The stamp that lets a late midnight reset tell yesterday's flags from
+    /// today's. Empty until something writes today-state.
+    func testTodayStateDayWriteAndRead() {
+        store.todayStateDay = "2026-08-07"
+        XCTAssertEqual(store.todayStateDay, "2026-08-07")
+    }
+
+    /// `stampTodayState` must produce exactly the format the reset compares
+    /// against, or the guard silently never matches and the shield is lifted.
+    func testStampTodayStateMatchesDayStampFormat() {
+        let now = Date(timeIntervalSince1970: 1_786_104_000)
+        store.stampTodayState(now: now, timeZone: TimeZone(identifier: "UTC")!)
+
+        XCTAssertEqual(store.todayStateDay, "2026-08-07")
+        XCTAssertEqual(
+            store.todayStateDay,
+            MidnightResetRecovery.dayStamp(for: now, timeZone: TimeZone(identifier: "UTC")!)
+        )
+    }
+
+    /// The recorded shield set the app restores from. Opaque tokens can't be
+    /// fabricated in tests, so this round-trips the storage itself.
+    func testShieldedAppTokensWriteAndClear() {
+        store.shieldedAppTokens = Data("blob".utf8)
+        XCTAssertEqual(store.shieldedAppTokens, Data("blob".utf8))
+        store.shieldedAppTokens = nil
+        XCTAssertNil(store.shieldedAppTokens)
     }
 }

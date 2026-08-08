@@ -8,7 +8,9 @@ import SwiftUI
 
 struct VerificationProcessingView: View {
     let input: VerificationInput
-    var service: any VerificationService = RealVerificationService()
+    /// Required, not defaulted: a defaulted service is a defaulted *verdict*, and
+    /// the one thing this screen must never do is pass without the real pipeline.
+    let service: any VerificationService
     var onSuccess: () -> Void
     var onFailure: (FailureReason) -> Void
 
@@ -77,13 +79,18 @@ struct VerificationProcessingView: View {
     }
 }
 
+// Inside #if DEBUG because it references StubVerificationService, which is
+// Debug-only — a preview left outside would break the Release archive.
+#if DEBUG
 #Preview("S-VER-05") {
     VerificationProcessingView(
         input: VerificationInput(
             videoURL: URL(filePath: "/tmp/test.mov"),
             sensorReading: .unavailable
         ),
+        service: StubVerificationService(),
         onSuccess: {},
         onFailure: { _ in }
     )
 }
+#endif

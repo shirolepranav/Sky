@@ -33,6 +33,15 @@ protocol VerificationService {
 
 // MARK: - Phase 7/8 stub
 
+/// Always passes. Superseded by `RealVerificationService` in Phase 10 and kept
+/// only for previews and tests.
+///
+/// ⚠️ DEBUG ONLY, deliberately. An unconditional `.success` conforming to the
+/// same protocol as the real pipeline is the one type that must not be able to
+/// reach a shipped build — a single mis-typed injection would turn the outdoor
+/// check into a 2.5-second wait. `VerificationProcessingView` takes its service
+/// as a required parameter for the same reason: no default, no silent swap.
+#if DEBUG
 final class StubVerificationService: VerificationService {
     func analyze(_ input: VerificationInput) async -> VerificationResult {
         try? await Task.sleep(for: .seconds(2.5))
@@ -40,3 +49,4 @@ final class StubVerificationService: VerificationService {
         return .success
     }
 }
+#endif

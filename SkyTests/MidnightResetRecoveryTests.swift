@@ -172,4 +172,71 @@ final class MidnightResetRecoveryTests: XCTestCase {
         XCTAssertTrue(store.pendingMidnightReset)
         XCTAssertEqual(store.todayResetToken, stamp(noon))
     }
+
+    // MARK: Late reset must not undo today's state
+
+    /// The "Go outside to unlock" bug. The extension shielded the apps *today*
+    /// but the reset token was still yesterday's, so the first foreground — which
+    /// is the tap on the shield button — ran the reset and opened the apps with
+    /// no verification. `todayStateDay` is what tells the two apart.
+    func testStaleStampDoesNotUnshieldABlockAppliedToday() {
+        store.todayResetToken = "2026-08-06"          // yesterday: reset is due
+        store.todayStateDay = stamp(noon)             // but the block is today's
+        store.isCurrentlyBlocked = true
+
+        var cleared = false
+        let outcome = MidnightResetRecovery.runIfNeeded(
+            store: store, now: noon, clearShields: { cleared = true })
+
+        XCTAssertEqual(outcome, .stampOnly)
+        XCTAssertFalse(cleared, "a late reset must never lift a live shield")
+        XCTAssertTrue(store.isCurrentlyBlocked)
+        XCTAssertEqual(store.todayResetToken, stamp(noon), "stamps must still converge")
+        XCTAssertFalse(store.pendingMidnightReset, "no day boundary was crossed here")
+    }
+
+    /// Same guard, other direction: a verification completed today survives a
+    /// late reset, so the user isn't asked to go outside twice.
+    func testStaleStampPreservesAVerificationDoneToday() {
+        store.todayResetToken = "2026-08-06"
+        store.todayStateDay = stamp(noon)
+        store.didVerifyToday = true
+
+        MidnightResetRecovery.runIfNeeded(store: store, now: noon, clearShields: {})
+
+        XCTAssertTrue(store.didVerifyToday)
+    }
+
+    /// The guard must not swallow a genuine day rollover: state stamped yesterday
+    /// still gets cleared.
+    func testStateStampedYesterdayStillTriggersFullReset() {
+        store.todayResetToken = "2026-08-06"
+        store.todayStateDay = "2026-08-06"
+        store.isCurrentlyBlocked = true
+
+        var cleared = false
+        let outcome = MidnightResetRecovery.runIfNeeded(
+            store: store, now: noon, clearShields: { cleared = true })
+
+        XCTAssertEqual(outcome, .recovered)
+        XCTAssertTrue(cleared)
+        XCTAssertFalse(store.isCurrentlyBlocked)
+        XCTAssertEqual(store.todayStateDay, stamp(noon), "cleared flags now describe today")
+    }
+
+    /// Clock moved backwards, or the user flew west across the date line. A stamp
+    /// ahead of today is not stale, and treating it as stale would unshield.
+    func testFutureStampIsAdoptedWithoutClearing() {
+        store.todayResetToken = "2026-09-01"
+        store.isCurrentlyBlocked = true
+
+        var cleared = false
+        let outcome = MidnightResetRecovery.runIfNeeded(
+            store: store, now: noon, clearShields: { cleared = true })
+
+        XCTAssertEqual(outcome, .adoptedFutureStamp)
+        XCTAssertFalse(cleared, "going back in time must not open the apps")
+        XCTAssertTrue(store.isCurrentlyBlocked)
+        XCTAssertEqual(store.todayResetToken, stamp(noon))
+    }
 }

@@ -77,9 +77,12 @@ struct VerificationSuccessView: View {
         store.didVerifyToday = true
         store.isCurrentlyBlocked = false
         store.verificationCompletedAt = Date()
+        // Marks this state as today's, so a late midnight reset doesn't mistake it
+        // for yesterday's and clear it (MidnightResetRecovery).
+        store.stampTodayState()
 
         // 2. Clear the ManagedSettings shield
-        ShieldService.unlockApps()
+        ShieldService.unlockApps(source: .verificationSuccess, store: store)
 
         // 3. Animate streak chip after short delay
         try? await Task.sleep(for: .milliseconds(500))

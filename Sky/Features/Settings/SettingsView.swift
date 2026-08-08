@@ -31,7 +31,9 @@ struct SettingsView: View {
                 accountSection
                 subscriptionSection
                 aboutSection
+                #if DEBUG
                 if debugEnabled { debugSection }
+                #endif
             }
             .listStyle(.insetGrouped)
             .scrollContentBackground(.hidden)
@@ -128,11 +130,15 @@ struct SettingsView: View {
         }
     }
 
+    /// Debug builds only — `DebugMenuView` does not exist in Release, and its
+    /// shield controls must never be reachable from a shipped build.
+    #if DEBUG
     private var debugSection: some View {
         Section("Developer") {
             NavigationLink("Debug menu") { DebugMenuView() }
         }
     }
+    #endif
 
     // MARK: - Helpers
 

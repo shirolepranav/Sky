@@ -80,13 +80,13 @@ struct VerificationCoordinatorView: View {
             isPresented: $showCloseConfirmation,
             titleVisibility: .visible
         ) {
-            Button("Cancel", role: .destructive) { onDismiss() }
+            Button("Cancel", role: .destructive) { abandon() }
             Button("Keep going", role: .cancel) {}
         }
         .fullScreenCover(isPresented: $showEmergencyFlow) {
             EmergencyUnlockCoordinatorView(
                 // Dismiss emergency AND close the verification flow
-                onDismiss:    { showEmergencyFlow = false; onDismiss() },
+                onDismiss:    { showEmergencyFlow = false; abandon() },
                 // Dismiss emergency and restart verification from S-VER-01
                 onTryOutside: { showEmergencyFlow = false; path = [] }
             )
@@ -116,6 +116,17 @@ struct VerificationCoordinatorView: View {
         }
     }
 
+    /// Leaves the flow without a pass.
+    ///
+    /// Reconciles first: backing out of verification must never be a way to end
+    /// up unblocked. If anything lifted the shield while the flow was open — a
+    /// late midnight reset, an OS quirk — this puts it back before the cover
+    /// dismisses, rather than waiting for the next foreground.
+    private func abandon() {
+        ShieldService.reconcile()
+        onDismiss()
+    }
+
     private func handleIntroPrimary() {
         if flowState.hasShownPermissionRationale {
             path.append(.permissionPreflight)
@@ -141,7 +152,7 @@ struct VerificationCoordinatorView: View {
                     lastSensorReading = reading
                     path.append(.processing(url, reading))
                 },
-                onCancelled:   { path = []; onDismiss() },
+                onCancelled:   { path = []; abandon() },
                 onInterrupted: { path.append(.interrupted) }
             )
             .navigationBarHidden(true)
@@ -149,6 +160,7 @@ struct VerificationCoordinatorView: View {
         case .processing(let url, let reading):
             VerificationProcessingView(
                 input: VerificationInput(videoURL: url, sensorReading: reading),
+                service: RealVerificationService(),
                 onSuccess: {
                     // Update streak first — the new streak value determines whether
                     // a milestone overlay is shown.
@@ -198,14 +210,14 @@ struct VerificationCoordinatorView: View {
                     // only after the user completes the typed-reason screen.
                     showEmergencyFlow = true
                 },
-                onClose: { onDismiss() }
+                onClose: { abandon() }
             )
             .navigationBarHidden(true)
 
         case .interrupted:
             RecordingInterruptedView(
                 onTryAgain: { path = [] },
-                onDismiss:  { onDismiss() }
+                onDismiss:  { abandon() }
             )
             .navigationBarHidden(true)
         }

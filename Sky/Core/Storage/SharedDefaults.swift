@@ -38,6 +38,13 @@ struct SharedDefaults {
         static let didVerifyToday = "today_verified"
         static let didEmergencyUnlockToday = "today_emergency_used"
         static let todayResetToken = "today_reset_token"
+        /// The calendar day the three flags above describe. Lets a *late* midnight
+        /// reset tell "these flags are yesterday's" from "these flags were written
+        /// today, after midnight" — see MidnightResetRecovery.
+        static let todayStateDay = "today_state_day"
+        /// The application tokens actually shielded right now, so the app can
+        /// re-apply exactly that set without re-shielding the whole selection.
+        static let shieldedAppTokens = "shielded_app_tokens"
         static let verificationCompletedAt = "verification_completed_at"
         static let pendingDeepLink = "pending_deep_link"
         // Phase 12 — midnight-reset hand-off from DeviceActivityMonitor extension
@@ -107,6 +114,37 @@ struct SharedDefaults {
     var todayResetToken: String {
         get { defaults.string(forKey: Key.todayResetToken) ?? "" }
         nonmutating set { defaults.set(newValue, forKey: Key.todayResetToken) }
+    }
+
+    /// `yyyy-MM-dd` (local) of the day the three flags above belong to.
+    ///
+    /// Written by whoever sets one of them — the monitor extension when it
+    /// shields, `VerificationSuccessView` on unlock, the emergency flow. Empty
+    /// means "no today-state has ever been written".
+    ///
+    /// This exists because `todayResetToken` alone can't distinguish a reset that
+    /// is merely *late* from one that is due: a stale token plus a `todayStateDay`
+    /// of today means the extension already moved the day on, and clearing the
+    /// flags would undo a block applied minutes ago (the "Go outside" unlock bug).
+    var todayStateDay: String {
+        get { defaults.string(forKey: Key.todayStateDay) ?? "" }
+        nonmutating set { defaults.set(newValue, forKey: Key.todayStateDay) }
+    }
+
+    /// Codable-archived `Set<ApplicationToken>` currently shielded, or nil when
+    /// nothing is. Written by the monitor extension so `ShieldService.reconcile`
+    /// can restore the exact set — in per-app mode only the apps that actually
+    /// exhausted their own budget are shielded, and re-applying the whole
+    /// selection would defeat the feature.
+    var shieldedAppTokens: Data? {
+        get { defaults.data(forKey: Key.shieldedAppTokens) }
+        nonmutating set { defaults.set(newValue, forKey: Key.shieldedAppTokens) }
+    }
+
+    /// Stamps `todayStateDay` with the current local day. Call alongside any
+    /// write to `isCurrentlyBlocked` / `didVerifyToday` / `didEmergencyUnlockToday`.
+    nonmutating func stampTodayState(now: Date = Date(), timeZone: TimeZone = .current) {
+        todayStateDay = MidnightResetRecovery.dayStamp(for: now, timeZone: timeZone)
     }
 
     // MARK: Hand-off (written by main app post-verification)

@@ -8,11 +8,26 @@ import SwiftUI
 
 /// Shared flag for the version-tap-unlocked debug menu. Lives in standard
 /// UserDefaults (device-local, not the App Group) so it never syncs.
+///
+/// **Always false in Release.** The debug menu can lift a live shield ("Force
+/// midnight reset"), so shipping it behind nothing but a tap gesture put a
+/// one-tap unblock in every user's hands. `DebugMenuView` itself no longer
+/// compiles into Release either — this flag is the second lock, not the only one.
 enum DebugMenuFlag {
     private static let key = "debugMenuEnabled"
     static var isEnabled: Bool {
-        get { UserDefaults.standard.bool(forKey: key) }
-        set { UserDefaults.standard.set(newValue, forKey: key) }
+        get {
+            #if DEBUG
+            UserDefaults.standard.bool(forKey: key)
+            #else
+            false
+            #endif
+        }
+        set {
+            #if DEBUG
+            UserDefaults.standard.set(newValue, forKey: key)
+            #endif
+        }
     }
 }
 
@@ -68,7 +83,9 @@ struct AboutView: View {
         return "\(short) (\(build))"
     }
 
+    /// No-op in Release — there is no debug menu there to unlock.
     private func handleVersionTap() {
+        #if DEBUG
         guard !DebugMenuFlag.isEnabled else { return }
         versionTaps += 1
         if versionTaps >= 7 {
@@ -76,6 +93,7 @@ struct AboutView: View {
             showDebugToast = true
             onDebugEnabled()
         }
+        #endif
     }
 
     // MARK: - Support

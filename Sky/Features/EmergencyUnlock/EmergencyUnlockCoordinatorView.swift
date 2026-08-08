@@ -103,9 +103,12 @@ struct EmergencyUnlockCoordinatorView: View {
         let store = SharedDefaults()
         store.didEmergencyUnlockToday = true
         store.isCurrentlyBlocked      = false
+        // Marks this state as today's, so a late midnight reset doesn't mistake it
+        // for yesterday's and clear it (MidnightResetRecovery).
+        store.stampTodayState(now: now)
 
         // 3. Clear the active shield in ManagedSettings
-        ShieldService.unlockApps()
+        ShieldService.unlockApps(source: .emergency, store: store)
 
         // 4. Update streak + mascot state
         streakManager.handleEmergencyUnlock()
