@@ -615,7 +615,8 @@ Do not start Phase N+1 until all four sections of Phase N are green.
 
 Before submitting to App Store Review:
 
-- [ ] Family Controls Distribution entitlement approved for **all four bundle IDs**
+- [x] Family Controls Distribution entitlement approved for **all four bundle IDs**
+      (confirmed 2026-08-06 in the portal; see `PHASE_0_CHECKLIST.md`)
 - [ ] Tested on iOS 17.0, 17.6, and the latest iOS 18.x release
 - [ ] Tested on iPhone SE 3, iPhone 14, iPhone 16 Pro Max
 - [ ] No paid users in the StoreKit sandbox have leaked entitlements

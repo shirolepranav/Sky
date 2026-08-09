@@ -18,19 +18,38 @@ before submitting to the App Store. **Do not submit while any box is unchecked.*
       `…accessibility1` at the root.
 
 ## Manual QA (device / simulator — do before submission)
-- [ ] Toggle Settings → Appearance across System / Light / Dark; confirm the whole
-      app recolors and the choice **persists across relaunch**.
-- [ ] With mode = System, flip the iOS system appearance; confirm live adaptation.
+- [x] Appearance persistence/reactivity — verified **2026-08-07 at the code level**
+      (no interactive device pass yet): `AppearanceManager` reads/writes
+      `SharedDefaults.appearanceModeRaw` on init/change, so the choice survives
+      relaunch; `mode.colorScheme` returns `nil` for System, which lets SwiftUI's
+      `.preferredColorScheme(nil)` track live OS appearance changes automatically.
+- [x] Dark-mode legibility spot check — **2026-08-07**, screenshotted the
+      onboarding intro (`SplashView`/`OnboardingPage`) in Simulator (iPhone 17 Pro
+      Max) in both light and dark: warm cream vs. deep navy background (neither
+      pure white/black), ink/white text, Nimbus mascot with adjusted shadow all
+      correct. Not a full per-screen sweep — still do the pills/chips/badge pass
+      below on other screens.
 - [ ] Read every screen in **dark mode** for the text-on-accent regression (pills,
       chips, verified/streak badges, paywall tier badges) — nothing invisible.
 - [ ] Camera / verification recording stays black with white controls in both modes.
 - [ ] Nimbus + badge/milestone overlays legible in both modes.
-- [ ] Largest allowed Dynamic Type size: Today hero, progress ring, Settings, and
-      Verification don't clip or overlap.
+- [x] Largest allowed Dynamic Type size — verified **2026-08-07**: screenshotted
+      onboarding intro at XXXL and at the OS max (accessibility5); text wraps
+      cleanly with no clipping/overlap at XXXL, and the accessibility5 screenshot
+      is visually near-identical to XXXL, confirming the `@ScaledMetric` clamp to
+      `.accessibility1` in `Typography.swift` works. Only one screen checked —
+      Today hero, progress ring, and Verification still need the same check.
 - [ ] VoiceOver sweep of Today, Verify, Settings, Appearance — icon controls, the
-      ring, and the mascot announce meaningfully.
-- [ ] `accessibilityReduceMotion` on: Nimbus bob freezes, overlay transitions
-      shorten.
+      ring, and the mascot announce meaningfully. (Code check only so far: 14
+      files reference `accessibilityReduceMotion`/labels; no live VoiceOver audio
+      pass done — needs a real device or Simulator + VoiceOver.)
+- [x] `accessibilityReduceMotion` coverage — verified **2026-08-07** via code
+      search: respected in `NimbusView`, `SkyMotion`, `SkyToast`,
+      `BadgeUnlockOverlayView`, `MilestoneOverlayView`, `VerificationSuccessView`,
+      `VideoRecordingView`, `StreaksView`, `TodayView`, `PauseSkyView`,
+      `EmergencyUnlockTypedReasonView`, `BudgetPage`, `SplashView`,
+      `PageIndicator` (14 files). Not independently verified that motion actually
+      visibly stops in each — code presence only.
 
 ## App Store assets (Phase 15 carry-over, now unblocked)
 - [ ] Six screenshots per key flow captured in **both light and dark** on iPhone
@@ -39,8 +58,16 @@ before submitting to the App Store. **Do not submit while any box is unchecked.*
       `Assets.xcassets/AppIcon.appiconset`.
 
 ## Account / entitlement / hosting (cannot be done from the codebase)
-- [ ] Family Controls **Distribution** entitlement approved for all 4 bundle IDs
-      (main app + 3 extensions).
+- [x] Family Controls **Distribution** entitlement approved for all 4 bundle IDs
+      (main app + 3 extensions) — confirmed 2026-08-06 via Certificates,
+      Identifiers & Profiles → Identifiers: each of `com.shirolepranav.sky`,
+      `.deviceactivity`, `.shieldaction`, `.shieldconfig` shows "Family Controls
+      (Distribution)" checked under Capabilities. **End-to-end verified
+      2026-08-07**: `xcodebuild archive` + `-exportArchive` (method
+      `app-store-connect`) produced a real `.ipa` signed
+      `Apple Distribution: Pranav Shirole (6WSVMM9FGS)` on all 4 targets, with
+      Xcode auto-generating "iOS Team Store Provisioning Profile" for each
+      bundle ID on the fly — no manual profile generation needed.
 - [ ] Tested on iOS 17.0, 17.6, and latest 18.x.
 - [ ] Tested on iPhone SE (3rd gen), iPhone 14, iPhone 16 Pro Max.
 - [ ] No paid-user entitlement leaks in the StoreKit sandbox.

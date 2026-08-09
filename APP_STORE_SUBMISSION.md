@@ -75,12 +75,20 @@ database and is not "data collection by the developer" — no data reaches a Sky
 > analyzed entirely on-device (Vision + Core Location + sensor fusion) and then deleted.
 > No video, location, or screen-time data is uploaded.
 >
-> **To test:** use the bundled StoreKit configuration for Pro. On the Settings tab, the
-> version row unlocks a debug menu (tap 7×) with "Force shield apply" and "Simulate Pro"
-> so review can exercise the blocked → verify flow without waiting out a real budget.
+> **To test:** on the Settings tab, tap the version row 7× to reveal a hidden
+> "Developer" section with **Force shield apply** — this blocks the selected apps
+> immediately so the blocked → verify flow can be exercised without waiting out a
+> real daily budget. This row ships in the release build; a separate "Simulate
+> Pro" debug toggle exists only in local Debug builds and is not present here.
+> The core block → verify flow reviewers need to see is available on the Free
+> tier and does not require a purchase. To test Sky Pro itself (unlocking more
+> than two apps, per-app limits, and the weekly pause), purchase
+> `com.sky.pro.lifetime` ($19.99, one-time) with a Sandbox Apple Account, the
+> standard App Review flow for a non-consumable.
 >
 > The Family Controls Distribution entitlement is approved for all four bundle IDs
-> (main app + Shield, Shield Action, and Device Activity Monitor extensions).
+> (main app + Shield, Shield Action, and Device Activity Monitor extensions) —
+> verified 2026-08-07 with a real `Apple Distribution`-signed archive.
 
 ---
 
