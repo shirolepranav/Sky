@@ -1,13 +1,20 @@
 // VerificationSuccessView.swift
 // S-VER-06 — Rewards the user, clears the shield, and writes today-state flags.
 // Sky_App_Workflow.md §Part 2 S-VER-06; Tech Spec §7.6.
+//
+// A pass buys one *session* of usage, not the rest of the day: the shield comes
+// back when the next rung of the ladder fires (DeviceActivityService). The copy
+// has to say so — promising "until midnight" and then locking at 2pm reads as a
+// bug even when it is the intended design.
 
 import SwiftUI
 
 struct VerificationSuccessView: View {
     var onDone: () -> Void
     var store: SharedDefaults = SharedDefaults()
-    /// Stub value of 1 for Phase 7; Phase 12 derives the real count from UserProgress.
+    /// The streak after this verification, passed in by
+    /// `VerificationCoordinatorView` from `StreakManager.handleVerificationSuccess`.
+    /// The default is only for previews — a real presentation always supplies it.
     var currentStreak: Int = 1
 
     @State private var mascotState: MascotState = .rainbow
@@ -39,7 +46,7 @@ struct VerificationSuccessView: View {
                     .skyText(.titleL)
                     .multilineTextAlignment(.center)
 
-                Text("Apps are open until midnight. Enjoy your day.")
+                Text("Apps are open for your next \(store.sessionLengthLabel) of use. Enjoy.")
                     .skyText(.body, color: SkyColor.inkSoft)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, SkyLayout.screenMargin)
@@ -65,7 +72,7 @@ struct VerificationSuccessView: View {
             #if os(iOS)
             UIAccessibility.post(
                 notification: .announcement,
-                argument: "Verified. Apps are open until midnight."
+                argument: "Verified. Apps are open for your next \(store.sessionLengthLabel) of use."
             )
             #endif
         }
@@ -73,6 +80,11 @@ struct VerificationSuccessView: View {
     }
 
     private func performUnlock() async {
+        // 0. Roll the day over first if a midnight passed while this flow was open.
+        //    Writing today's flags on top of a stale day stamp strands the recovery
+        //    in `.stampOnly`, where yesterday can no longer be evaluated.
+        MidnightResetRecovery.rollDayOverBeforeWritingTodayState(store: store)
+
         // 1. Write today-state flags
         store.didVerifyToday = true
         store.isCurrentlyBlocked = false

@@ -4,12 +4,19 @@ Guidance for working in the Sky codebase. Read this first.
 
 ## What Sky is
 
-iOS app (SwiftUI, iOS 17+) that blocks selected social apps after a daily time
-budget and requires a verified ~30-second **outdoor video** to unlock them. The
+iOS app (SwiftUI, iOS 17+) that blocks selected social apps after a time budget
+and requires a verified ~30-second **outdoor video** to unlock them. The
 strict on-device verification is the entire product. Friendly cloud mascot
 ("Nimbus"). No skip credits; the only escape is a friction-loaded emergency
 unlock. iOS-only, no third-party SDKs, on-device only (no user videos leave the
 phone).
+
+A pass buys **one more session** — another budget's worth of usage — not the rest
+of the day. iOS will not deliver a second threshold callback for the same event
+in one day, so `DeviceActivityService` pre-registers a *ladder* of events at 1×,
+2×, 3×… the session length, and `SkyDeviceActivityMonitor` tracks the highest
+rung it has acted on. Read that file's header before touching monitoring. The
+emergency unlock is the one path that still covers the whole day.
 
 ## Source-of-truth documents (read before non-trivial work)
 
@@ -70,7 +77,7 @@ fallback below. Run the unit tests the same way:
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild test -project Sky.xcodeproj -scheme Sky -destination 'platform=iOS Simulator,name=iPhone 17'
 ```
 
-On an **iOS 26.2** destination the suite runs **175 tests, 0 skipped, 8 failures**.
+On an **iOS 26.2** destination the suite runs **242 tests, 0 skipped, 8 failures**.
 The 8 are long-standing and live in `SunriseSunsetTests` (solar-position
 precision), `OnboardingViewModelTests`, and `SetupRoutingTests` — **not**
 regressions. Treat that as the baseline; a change is clean if it adds no failures
@@ -103,6 +110,13 @@ If you see a failure you can't explain, re-run after
    test seams follow the same rule; verify with
    `xcodebuild -configuration Release ... build`, which is not covered by a
    plain Debug build.
+3. **Extension-point identifiers fail silently.** Shield *configuration* is
+   `com.apple.ManagedSettingsUI.shield-configuration-service`; shield *action* is
+   `com.apple.ManagedSettings.shield-action-service` — different namespaces, and
+   the `UI` variant of the action point does not exist. A wrong identifier builds,
+   signs and embeds cleanly, then PluginKit never matches the appex and the
+   delegate is simply never called. `ShieldActionExtensionPointTests` reads the
+   built `.appex` and pins all three.
 
 **Fallback (no Xcode / preview-macro issues):** type-check the cross-platform
 SwiftUI against the macOS SDK. The `#Preview` macro plugin needs full Xcode, so
@@ -173,9 +187,13 @@ kind. Exact strings for built screens live in `Sky_App_Workflow.md §3.3`.
 
 ## Gotchas
 
-- **Family Controls Distribution entitlement** is required for the main app +
-  each of the 3 extension targets, applied separately; approval can take weeks
-  (Roadmap Phase 0). Verification work is blocked on it.
+- **Family Controls Distribution entitlement** is approved for the main app and
+  all 3 extension targets — confirmed 2026-08-06 via Certificates, Identifiers &
+  Profiles → Identifiers → Capabilities, and end-to-end verified 2026-08-07 with
+  a real `Apple Distribution`-signed `.ipa` export (see `PHASE_0_CHECKLIST.md`).
+  A bare `xcodebuild archive` on its own signs with the Development identity by
+  default (CLI quirk) — use `-exportArchive` with a `method: app-store-connect`
+  ExportOptions.plist (or Xcode's Organizer UI) to get a real distribution build.
 - Screen Time / Shield APIs are historically unstable across iOS versions — test
   on iOS 17.0, 17.6, latest 18.x.
 - Verification thresholds (`VerificationThresholds.swift`, when built) are the

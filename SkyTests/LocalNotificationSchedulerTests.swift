@@ -1,8 +1,8 @@
 // LocalNotificationSchedulerTests.swift
 // Phase 15 automated tests (Roadmap Phase 15 → Automated Tests). Uses a fake
-// UNUserNotificationCenter (protocol-wrapped) to assert the morning reminder is
-// scheduled, the streak warning is Pro-gated, and only LOCAL authorization is
-// requested (no remote push / APNs).
+// UNUserNotificationCenter (protocol-wrapped) to assert the retired morning
+// reminder is actively cancelled, the streak warning is Pro-gated, and only
+// LOCAL authorization is requested (no remote push / APNs).
 
 import XCTest
 import UserNotifications
@@ -48,25 +48,30 @@ final class LocalNotificationSchedulerTests: XCTestCase {
         super.tearDown()
     }
 
-    func testMorningReminderScheduled() async {
+    // MARK: - Retired morning reminder
+
+    func testMorningReminderIsNeverScheduled() async {
         await scheduler.rescheduleAll(store: store, isPro: false, streakAtRisk: false)
+        await scheduler.rescheduleAll(store: store, isPro: true, streakAtRisk: true)
 
-        let morning = fake.added.first { $0.identifier == LocalNotificationScheduler.Identifier.morning }
-        XCTAssertNotNil(morning, "morning reminder should be scheduled when enabled")
-
-        let trigger = morning?.trigger as? UNCalendarNotificationTrigger
-        XCTAssertEqual(trigger?.dateComponents.hour, 8)
-        XCTAssertEqual(trigger?.dateComponents.minute, 30)
-        XCTAssertEqual(trigger?.repeats, true)
+        XCTAssertTrue(
+            fake.added.allSatisfy { !$0.identifier.contains("morning") },
+            "The 8:30 morning nudge was removed — nothing should re-add it."
+        )
     }
 
-    func testMorningReminderRemovedWhenDisabled() async {
-        store.notifMorningEnabled = false
-        await scheduler.rescheduleAll(store: store, isPro: false, streakAtRisk: false)
+    /// The retired request was registered with `repeats: true`, so it survives on
+    /// every device that ran an older build. Deleting the scheduling code alone
+    /// would leave it firing forever — `rescheduleAll` has to cancel it actively,
+    /// unconditionally, regardless of preferences or tier.
+    func testRetiredMorningReminderIsCancelledOnEveryReschedule() async {
+        await scheduler.rescheduleAll(store: store, isPro: true, streakAtRisk: true)
 
-        XCTAssertTrue(fake.removedIdentifiers.contains(LocalNotificationScheduler.Identifier.morning))
-        XCTAssertNil(fake.added.first { $0.identifier == LocalNotificationScheduler.Identifier.morning })
+        XCTAssertTrue(fake.removedIdentifiers.contains("sky.notif.morning"))
+        XCTAssertEqual(LocalNotificationScheduler.Retired.all, ["sky.notif.morning"])
     }
+
+    // MARK: - Streak warning
 
     func testStreakWarningOnlyForProUsers() async {
         // Free user, streak at risk → no streak warning.

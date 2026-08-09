@@ -127,7 +127,6 @@ enum DebugSeeder {
         store.limitMode = "perApp"
         store.combinedLimitSeconds = 3600
         store.limitsEnabled = true
-        store.notifMorningEnabled = true
         store.notifWarningEnabled = true
         store.notifStreakEnabled = true
     }

@@ -1,5 +1,10 @@
 // LimitConfigurationView.swift
-// S-CFG-03 · Daily Limit Configuration (Sky_App_Workflow.md §S-CFG-03).
+// S-CFG-03 · Session Limit Configuration (Sky_App_Workflow.md §S-CFG-03).
+//
+// The value here is a *session* budget, not a daily one: it is what the user
+// spends before Sky asks them outside, and what a passed verification grants
+// again. Same number, same picker — the meaning changed when verification stopped
+// unlocking until midnight (see DeviceActivityService's session ladder).
 //
 // Hosts the combined/per-app mode toggle with embedded pickers:
 //   S-CFG-04 · CombinedLimitContent — three hour-chips, tap to select
@@ -30,7 +35,7 @@ struct LimitConfigurationView: View {
             VStack(alignment: .leading, spacing: SkySpacing.s6) {
                 Spacer(minLength: SkySpacing.s6)
 
-                Text("Daily limit")
+                Text("Session limit")
                     .skyText(.titleXL)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .accessibilityIdentifier("limitConfig.title")
@@ -112,7 +117,7 @@ private struct CombinedLimitContent: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: SkySpacing.s4) {
-            Text("How long across all selected apps each day?")
+            Text("How long across all selected apps before Sky asks you to go outside? You get this much again after each verification.")
                 .skyText(.bodyS, color: SkyColor.inkSoft)
 
             // Accessibility: underlying Picker drives VoiceOver ("One hour" etc.)
@@ -129,7 +134,7 @@ private struct CombinedLimitContent: View {
                 }
             }
             // Invisible Picker so VoiceOver users can navigate by value.
-            Picker("Daily limit", selection: $seconds) {
+            Picker("Session limit", selection: $seconds) {
                 Text("One hour").tag(3600)
                 Text("Two hours").tag(7200)
                 Text("Three hours").tag(10800)
@@ -230,7 +235,7 @@ private struct PerAppRow: View {
 
             Stepper("", value: $minutes, in: 15...240, step: 15)
                 .labelsHidden()
-                .accessibilityLabel("Daily limit, \(minuteLabel)")
+                .accessibilityLabel("Session limit, \(minuteLabel)")
                 .accessibilityValue(minuteLabel)
         }
         .frame(minHeight: SkyLayout.minTouchTarget)

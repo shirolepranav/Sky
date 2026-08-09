@@ -70,9 +70,9 @@ final class DeviceActivityServiceTests: XCTestCase {
 
     // MARK: Events — combined mode
 
-    /// Combined mode with a known limit must produce a `.dailyLimitReached` event
-    /// at the limit plus a paired `.dailyWarning` event 30 minutes earlier.
-    func testEventThresholdMatchesCombinedLimit() {
+    /// Rung 1 of the combined ladder sits at the session length, with its warning
+    /// 30 minutes earlier.
+    func testFirstLadderRungMatchesTheSessionLength() {
         let events = DeviceActivityService.makeEvents(
             limitMode: "combined",
             combinedLimitSeconds: 3600,
@@ -80,14 +80,62 @@ final class DeviceActivityServiceTests: XCTestCase {
             perAppLimitsData: nil
         )
 
-        XCTAssertEqual(events.count, 2, "limit event + 30-min warning event")
-        XCTAssertEqual(events[.dailyLimitReached]?.threshold.second, 3600)
-        XCTAssertEqual(events[.dailyWarning]?.threshold.second, 1800, "warning fires 30 min before")
+        XCTAssertEqual(events[.sessionLimit(rung: 1)]?.threshold.second, 3600)
+        XCTAssertEqual(events[.sessionWarning(rung: 1)]?.threshold.second, 1800,
+                       "warning fires 30 min before")
     }
 
-    /// A limit ≤ 30 minutes leaves no room for a distinct earlier warning, so only
-    /// the limit event is emitted.
-    func testShortLimitEmitsNoWarning() {
+    /// The rungs above 1 are what let the apps lock again after a verification.
+    /// Each sits at a whole multiple of the session length.
+    func testLadderRungsAreMultiplesOfTheSessionLength() {
+        let session = 7200
+        let events = DeviceActivityService.makeEvents(
+            limitMode: "combined",
+            combinedLimitSeconds: session,
+            selection: FamilyActivitySelection(),
+            perAppLimitsData: nil
+        )
+
+        let depth = DeviceActivityService.ladderDepth(sessionSeconds: session)
+        XCTAssertGreaterThan(depth, 1, "a single rung would re-create the until-midnight bug")
+
+        for rung in 1...depth {
+            XCTAssertEqual(
+                events[.sessionLimit(rung: rung)]?.threshold.second, session * rung,
+                "rung \(rung) must sit at \(rung)× the session length"
+            )
+            XCTAssertEqual(
+                events[.sessionWarning(rung: rung)]?.threshold.second, session * rung - 1800
+            )
+        }
+        XCTAssertNil(events[.sessionLimit(rung: depth + 1)], "the ladder is finite")
+    }
+
+    /// Ladder depth trades off against session length so the horizon stays roughly
+    /// constant, and is capped so the event count stays sane.
+    func testLadderDepthCoversTheHorizonWithoutExplodingTheEventCount() {
+        XCTAssertEqual(DeviceActivityService.ladderDepth(sessionSeconds: 3 * 3600), 4)
+        XCTAssertEqual(DeviceActivityService.ladderDepth(sessionSeconds: 2 * 3600), 6)
+        XCTAssertEqual(DeviceActivityService.ladderDepth(sessionSeconds: 1 * 3600), 8,
+                       "capped at maxLadderDepth rather than 12")
+        XCTAssertEqual(DeviceActivityService.ladderDepth(sessionSeconds: 0), 1,
+                       "must not divide by zero")
+
+        for session in [3600, 7200, 10800] {
+            let events = DeviceActivityService.makeEvents(
+                limitMode: "combined",
+                combinedLimitSeconds: session,
+                selection: FamilyActivitySelection(),
+                perAppLimitsData: nil
+            )
+            XCTAssertLessThanOrEqual(events.count, DeviceActivityService.maxEventsPerActivity)
+        }
+    }
+
+    /// A session of 30 minutes or less has nowhere to put a warning: rung n's
+    /// warning would land at or before rung n−1's limit, firing "30 minutes left"
+    /// at the moment the apps actually shut.
+    func testShortSessionsEmitNoWarnings() {
         let events = DeviceActivityService.makeEvents(
             limitMode: "combined",
             combinedLimitSeconds: 20 * 60,
@@ -95,9 +143,13 @@ final class DeviceActivityServiceTests: XCTestCase {
             perAppLimitsData: nil
         )
 
-        XCTAssertEqual(events.count, 1)
-        XCTAssertNotNil(events[.dailyLimitReached])
-        XCTAssertNil(events[.dailyWarning])
+        XCTAssertNotNil(events[.sessionLimit(rung: 1)])
+        XCTAssertTrue(
+            events.keys.allSatisfy { !$0.rawValue.hasPrefix("sessionWarn_") },
+            "no rung may carry a warning when the session is ≤ 30 minutes"
+        )
+        XCTAssertNil(DeviceActivityService.ladderWarningSeconds(sessionSeconds: 1800, rung: 3))
+        XCTAssertEqual(DeviceActivityService.ladderWarningSeconds(sessionSeconds: 3600, rung: 3), 9000)
     }
 
     /// The warning-threshold helper subtracts 30 minutes, or returns nil when the
@@ -107,6 +159,20 @@ final class DeviceActivityServiceTests: XCTestCase {
         XCTAssertEqual(DeviceActivityService.warningThresholdSeconds(for: 1801), 1)
         XCTAssertNil(DeviceActivityService.warningThresholdSeconds(for: 1800))
         XCTAssertNil(DeviceActivityService.warningThresholdSeconds(for: 600))
+    }
+
+    /// Rung indices round-trip out of every event-name shape, since the monitor
+    /// discards anything it can't place on a ladder.
+    func testRungParsesOutOfEveryEventName() {
+        XCTAssertEqual(DeviceActivityEvent.Name.rung(from: .sessionLimit(rung: 4)), 4)
+        XCTAssertEqual(DeviceActivityEvent.Name.rung(from: .sessionWarning(rung: 2)), 2)
+        XCTAssertEqual(
+            DeviceActivityEvent.Name.rung(
+                from: .init("perApp_\(Data([1, 2, 3]).base64EncodedString())_7")),
+            7
+        )
+        XCTAssertNil(DeviceActivityEvent.Name.rung(from: .init("noUnderscore")))
+        XCTAssertNil(DeviceActivityEvent.Name.rung(from: .init("sessionLimit_notANumber")))
     }
 
     // MARK: Events — per-app mode
@@ -129,13 +195,39 @@ final class DeviceActivityServiceTests: XCTestCase {
         )
 
         XCTAssertFalse(
-            events.keys.contains(.dailyLimitReached),
-            "per-app mode must not emit a combined dailyLimitReached event"
+            events.keys.contains(.sessionLimit(rung: 1)),
+            "per-app mode must not emit a combined-ladder event"
         )
         XCTAssertTrue(
             events.isEmpty,
             "nil perAppLimitsData should produce no per-app events"
         )
+    }
+
+    /// Per-app limit entries are never pruned when the user edits their app
+    /// selection, so `perAppLimitsData` accumulates entries for apps Sky no longer
+    /// manages. Registering events from those would burn a budget, post "Time's
+    /// up", and shield an app the user removed — the "notification for an app I
+    /// don't even track" report.
+    ///
+    /// Only half of this is unit-testable: `ApplicationToken` is opaque and cannot
+    /// be instantiated without a real Family Controls session, so there is no way
+    /// to build an entry that *is* in the selection and assert it survives. What
+    /// this pins is that an empty selection yields no events no matter what the
+    /// stored data says. The positive case is covered by the on-device pass.
+    func testPerAppEventsAreNotEmittedForAppsOutsideTheSelection() {
+        for stored in [Data(), Data([0x5b, 0x5d]) /* "[]" */, Data([9, 9, 9])] {
+            let events = DeviceActivityService.makeEvents(
+                limitMode: "perApp",
+                combinedLimitSeconds: 7200,
+                selection: FamilyActivitySelection(),   // nothing selected
+                perAppLimitsData: stored
+            )
+            XCTAssertTrue(
+                events.isEmpty,
+                "an empty selection must produce no per-app events (stored: \(stored as NSData))"
+            )
+        }
     }
 
     // MARK: Stop monitoring
@@ -248,7 +340,7 @@ final class DeviceActivityServiceTests: XCTestCase {
         try service.startMonitoring()
 
         XCTAssertEqual(mock.startCallCount, 2)
-        XCTAssertEqual(mock.capturedEvents[.dailyLimitReached]?.threshold.second, 3600)
+        XCTAssertEqual(mock.capturedEvents[.sessionLimit(rung: 1)]?.threshold.second, 3600)
     }
 
     /// Switching limit mode changes the event set, so it must re-arm too.
@@ -351,20 +443,28 @@ final class DeviceActivityServiceTests: XCTestCase {
 
     /// A warning must never be read as a limit, or apps lock 30 minutes early.
     func testPerAppWarningNameIsNotDecodedAsALimit() {
-        let warning = DeviceActivityEvent.Name("perAppWarn_\(Data([1, 2, 3]).base64EncodedString())")
+        let warning = DeviceActivityEvent.Name(
+            "perAppWarn_\(Data([1, 2, 3]).base64EncodedString())_1")
         XCTAssertNil(DeviceActivityEvent.Name.applicationToken(fromPerAppLimit: warning))
     }
 
     /// Combined-mode names must return nil so the caller takes the combined branch
     /// and shields the whole selection.
     func testCombinedEventNamesDecodeToNil() {
-        XCTAssertNil(DeviceActivityEvent.Name.applicationToken(fromPerAppLimit: .dailyLimitReached))
-        XCTAssertNil(DeviceActivityEvent.Name.applicationToken(fromPerAppLimit: .dailyWarning))
+        XCTAssertNil(DeviceActivityEvent.Name.applicationToken(fromPerAppLimit: .sessionLimit(rung: 1)))
+        XCTAssertNil(DeviceActivityEvent.Name.applicationToken(fromPerAppLimit: .sessionWarning(rung: 1)))
     }
 
-    /// Malformed payloads must fail closed rather than trap.
+    /// Malformed payloads must fail closed rather than trap. Includes names with a
+    /// well-formed token but no rung suffix — the shape the pre-ladder build wrote,
+    /// which can still be sitting in a stale registration on an upgrading device.
     func testMalformedPerAppNamesDecodeToNil() {
-        for raw in ["perApp_", "perApp_not!base64", "perApp_\(Data([9, 9]).base64EncodedString())"] {
+        for raw in [
+            "perApp_",
+            "perApp_not!base64_1",
+            "perApp_\(Data([9, 9]).base64EncodedString())_1",
+            "perApp_\(Data([9, 9]).base64EncodedString())",   // no rung suffix
+        ] {
             XCTAssertNil(
                 DeviceActivityEvent.Name.applicationToken(fromPerAppLimit: .init(raw)),
                 "\(raw) should not yield a token"

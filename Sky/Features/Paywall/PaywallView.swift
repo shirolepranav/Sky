@@ -143,7 +143,7 @@ struct PaywallView: View {
                     isLast: false
                 )
                 ComparisonRow(
-                    feature: "Daily limits",
+                    feature: "Session limits",
                     free: "Combined",
                     pro: "Per-app ✓",
                     isLast: false

@@ -27,7 +27,7 @@ struct AuthorizationExplainerView: View {
                     .multilineTextAlignment(.center)
                     .accessibilityIdentifier("perm.title.S-PERM-01")
 
-                Text("This is the permission that lets Sky pause apps when you hit your daily limit. We use it for your phone only — never for monitoring anyone else.")
+                Text("This is the permission that lets Sky pause apps when you hit your session limit. We use it for your phone only — never for monitoring anyone else.")
                     .skyText(.body, color: SkyColor.inkSoft)
                     .multilineTextAlignment(.center)
             }

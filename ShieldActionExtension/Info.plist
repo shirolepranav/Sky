@@ -5,7 +5,15 @@
 	<key>NSExtension</key>
 	<dict>
 		<key>NSExtensionPointIdentifier</key>
-		<string>com.apple.ManagedSettingsUI.shield-action-service</string>
+		<!-- ⚠️ NOT `ManagedSettingsUI`. The two shield extension points live in
+		     different namespaces: shield *configuration* is
+		     com.apple.ManagedSettingsUI.shield-configuration-service, but shield
+		     *action* is com.apple.ManagedSettings.shield-action-service. Getting
+		     this wrong builds, signs and embeds cleanly — PluginKit simply never
+		     matches the appex to a real extension point, so the delegate is never
+		     invoked and both shield buttons are silently inert.
+		     ShieldActionExtensionPointTests pins this string. -->
+		<string>com.apple.ManagedSettings.shield-action-service</string>
 		<key>NSExtensionPrincipalClass</key>
 		<string>$(PRODUCT_MODULE_NAME).SkyShieldAction</string>
 	</dict>

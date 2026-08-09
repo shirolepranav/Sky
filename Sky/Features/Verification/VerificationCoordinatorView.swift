@@ -10,9 +10,15 @@
 // newly earned badges are queued in StreakManager.pendingBadgeCelebrations for
 // TodayView to display after the cover dismisses.
 //
-// Phase 14: one-shot Pro upsell (S-PAY-01) fires after the user's first
-// successful verification while on the Free tier. Shown at most once, tracked
-// by `hasSeenFirstVerificationPaywall` in AppStorage.
+// Phase 14 shipped a one-shot Pro upsell that fired after the user's first
+// successful verification. It has been removed: landing a paywall on the beat
+// where the user has just walked outside and earned their apps back turns the
+// reward into a toll booth. The upsell now lives only where the user is already
+// reaching for a Pro capability — SettingsView's upgrade row, the locked
+// streak-warning toggle, and the S-PAY-05 gate in LimitConfigurationView.
+//
+// The retired `hasSeenFirstVerificationPaywall` AppStorage key is deliberately
+// left unread rather than migrated; it is inert.
 
 import SwiftUI
 
@@ -52,17 +58,17 @@ struct VerificationCoordinatorView: View {
 
     @EnvironmentObject private var mascotManager: MascotStateManager
     @EnvironmentObject private var streakManager: StreakManager
-    @EnvironmentObject private var storeKit: StoreKitService
+    // No StoreKitService dependency: nothing in this flow is Pro-gated now that
+    // the post-verification upsell is gone. Callers may still inject it harmlessly.
     @StateObject private var flowState = VerificationFlowState()
     @StateObject private var recordingVM = VideoRecordingViewModel()
     @State private var path: [VerificationStep] = []
     @State private var showCloseConfirmation = false
     @State private var showEmergencyFlow = false
-    @State private var showPostVerificationPaywall = false
-    /// Tracks whether this user has already seen the post-verification paywall upsell.
-    @AppStorage("hasSeenFirstVerificationPaywall") private var hasSeenPaywall = false
     /// The sensor reading from the most recent recording; provides location tag for Wanderer badge.
     @State private var lastSensorReading: SensorReading? = nil
+    /// The streak value computed on success, shown on S-VER-06.
+    @State private var streakAfterVerification: Int = 1
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -88,32 +94,26 @@ struct VerificationCoordinatorView: View {
                 // Dismiss emergency AND close the verification flow
                 onDismiss:    { showEmergencyFlow = false; abandon() },
                 // Dismiss emergency and restart verification from S-VER-01
-                onTryOutside: { showEmergencyFlow = false; path = [] }
+                onTryOutside: { showEmergencyFlow = false; restartFlow() }
             )
             .environmentObject(streakManager)
             .environmentObject(mascotManager)
-        }
-        .fullScreenCover(isPresented: $showPostVerificationPaywall) {
-            PaywallView {
-                showPostVerificationPaywall = false
-                onDismiss()
-            }
-            .environmentObject(storeKit)
         }
         .navigationBarHidden(true)
     }
 
     // MARK: Routing
 
-    /// Called when the user taps "Done" on S-VER-06.
-    /// Shows the one-shot Pro upsell for free users on first success.
-    private func handleSuccessDone() {
-        if !storeKit.isPro && !hasSeenPaywall {
-            hasSeenPaywall = true
-            showPostVerificationPaywall = true
-        } else {
-            onDismiss()
-        }
+    /// Sends the user back to S-VER-01 for another attempt.
+    ///
+    /// `recordingVM` is a single `@StateObject` shared by every attempt in this
+    /// flow, so popping the navigation path is not enough — the view model would
+    /// still be holding the finished attempt's elapsed time, prompt index, and
+    /// configured capture session. Every retry entry point must go through here.
+    private func restartFlow() {
+        recordingVM.reset()
+        flowState.resetFailures()
+        path = []
     }
 
     /// Leaves the flow without a pass.
@@ -173,6 +173,9 @@ struct VerificationCoordinatorView: View {
                         streakManager.pendingBadgeCelebrations = newBadges
                     }
                     mascotManager.handleVerificationSuccess()
+                    // S-VER-06's streak chip animates to this. It used to take the
+                    // `currentStreak: Int = 1` default and always land on 1.
+                    streakAfterVerification = newStreak
                     if streakManager.isMilestoneStreak(newStreak) {
                         path.append(.milestone(newStreak))
                     } else {
@@ -193,17 +196,14 @@ struct VerificationCoordinatorView: View {
             .navigationBarHidden(true)
 
         case .success:
-            VerificationSuccessView(onDone: { handleSuccessDone() })
+            VerificationSuccessView(onDone: onDismiss, currentStreak: streakAfterVerification)
                 .navigationBarHidden(true)
 
         case .failure(let reason):
             VerificationFailureView(
                 reason: reason,
                 consecutiveFailures: flowState.consecutiveFailures,
-                onTryAgain: {
-                    flowState.resetFailures()
-                    path = []
-                },
+                onTryAgain: { restartFlow() },
                 onEmergency: {
                     // Phase 13: route to the full typed-reason friction gate.
                     // Streak reset happens inside EmergencyUnlockCoordinatorView
@@ -216,7 +216,7 @@ struct VerificationCoordinatorView: View {
 
         case .interrupted:
             RecordingInterruptedView(
-                onTryAgain: { path = [] },
+                onTryAgain: { restartFlow() },
                 onDismiss:  { abandon() }
             )
             .navigationBarHidden(true)
@@ -228,5 +228,4 @@ struct VerificationCoordinatorView: View {
     VerificationCoordinatorView(onDismiss: {})
         .environmentObject(MascotStateManager())
         .environmentObject(StreakManager())
-        .environmentObject(StoreKitService())
 }

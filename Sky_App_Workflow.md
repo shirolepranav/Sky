@@ -34,7 +34,7 @@ This document enumerates **every screen, every component, every state, every int
 ## Glossary
 
 - **Nimbus** — the cloud mascot; visual avatar of user state. Has 5 states (PRD §4.7).
-- **Verification** — the strict ~30s outdoor video flow that earns the user back access to blocked apps for the rest of the day.
+- **Verification** — the strict ~30s outdoor video flow that earns the user back access to blocked apps for one more *session* (see §Session ladder). Not for the rest of the day.
 - **Shield** — the iOS-level block applied to user-selected apps via `ManagedSettingsStore`. Tapping a shielded app launches Sky's custom shield UI, not the system one.
 - **Emergency unlock** — the typed-reason escape path; unlocks apps but breaks streak and makes Nimbus sad.
 - **Day** — a local-time 24-hour window starting at 00:00. All resets, streaks, and budgets pivot on local midnight.
@@ -423,7 +423,7 @@ Handled in `SkyApp.swift` `.onOpenURL { url in router.handle(url) }`.
 
 **Copy.**
 - Title: **"Want gentle nudges?"**
-- Bullet 1: *"Morning hello at 8:30."*
+- Bullet 1: *"A heads-up 30 minutes before your apps pause."*
 - Bullet 2: *"A heads-up 30 minutes before your apps pause."*
 - Bullet 3: *"Streak reminders if you're about to break one. (Pro)"*
 - Primary: **"Sure"**
@@ -788,8 +788,8 @@ This is not a separate screen but the catalog of banner states that live inside 
 | State | Title (bold) | Body | Color stripe |
 |---|---|---|---|
 | `unblocked` | "Sky is watching." | *"You've used 23 min of 2 h today."* (dynamic) | `mossGreen` |
-| `blocked` | "Time's up." | *"Verify outside to unlock the apps for the rest of today."* | `coralStreak` |
-| `verifiedToday` | "Verified ☀" | *"Apps are open until midnight. Nice work."* | `sunYellow` |
+| `blocked` | "Time's up." | *"Verify outside for another \<session length\> of use."* | `coralStreak` |
+| `verifiedToday` | "Verified ☀" | *"Apps are open for your next \<session length\> of use. Nice work."* | `sunYellow` |
 | `emergencyUnlocked` | "Emergency unlock used." | *"Streak reset. Tomorrow's a fresh start."* | `cloudGrey` |
 | `paused` | "Paused until tomorrow." | *"Sky resumes at <time>."* | `cloudGrey` |
 | `noApps` | "Nothing selected yet." | *"Choose the apps you'd like Sky to manage."* | `primarySky` |
@@ -1000,7 +1000,7 @@ This is not a separate screen but the catalog of banner states that live inside 
 - **Pause** *(Pro)*
   - "Pause Sky for 24 hours" → `S-SET-03`
 - **Notifications**
-  - Morning reminder (toggle)
+  - 30-minute warning (toggle)
   - 30-minute warning (toggle)
   - Streak warning (toggle) *(Pro)*
   - "All notifications" → `S-SET-04`
@@ -1120,7 +1120,7 @@ This is not a separate screen but the catalog of banner states that live inside 
 **Components.** Four `Toggle`s, section footer text.
 
 **Copy.**
-- "Morning reminder (8:30 AM)"
+- "30-minute warning before block"
 - "30-minute warning before block"
 - "Block start"
 - "Streak warning at 10 PM" *(Pro)*
@@ -1307,7 +1307,7 @@ This is not a separate screen but the catalog of banner states that live inside 
 
 **Entry points.** User taps a shielded app icon (managed by iOS).
 
-**Exit points.** Primary button → `sky://verify` → main app `S-VER-01`. Secondary → `sky://emergency` → `S-EMG-01`. iOS-provided close button → returns to home screen.
+**Exit points.** An app extension cannot launch its container app, so neither button opens Sky directly. Both write `pending_deep_link` to the App Group and return `ShieldActionResponse.close`, which dismisses the shield *and* the blocked app; the user lands on the home screen and taps Sky, and `SkyApp.consumePendingDeepLink()` routes them to `S-VER-01` or `S-EMG-01`. The primary label says "Open Sky to unlock" for exactly this reason.
 
 **Layout.** ShieldConfiguration UIKit-based:
 - Background: `warmCream`.
@@ -1581,7 +1581,7 @@ Same structure as `S-SHIELD-02`. Target: `S-EMG-01`.
 
 **Copy.**
 - Title: **"Verified ☀"**
-- Body: *"Apps are open until midnight. Enjoy your day."*
+- Body: *"Apps are open for your next \<session length\> of use. Enjoy."* (e.g. "your next 2 hours of use")
 - Streak chip: *"<n>-day streak"* (animates from prior count)
 - Button: **"Done"**
 
@@ -1598,7 +1598,7 @@ Same structure as `S-SHIELD-02`. Target: `S-EMG-01`.
 - `ShieldService.unlockApps()` failure: still show success, log error, schedule a retry; user-visible behavior is unlocked + a quiet toast "Couldn't fully clear shields — restart Sky if apps remain blocked."
 - CloudKit failure: cache write succeeds; sync retries.
 
-**Accessibility.** Announces "Verified. Apps are open until midnight."
+**Accessibility.** Announces "Verified. Apps are open for your next \<session length\> of use."
 
 **Persistence.** Calls `ShieldService.unlockApps()` → `ManagedSettingsStore().shield.applications = nil` and `shield.applicationCategories = nil`. Writes `didVerifyToday=true`, `isCurrentlyBlocked=false`, `verificationCompletedAt=Date()`. Updates `UserProgress` (streak +1 if conditions met, totalVerifications +1, last location appended rounded to 0.01°).
 
@@ -2013,7 +2013,6 @@ Not a screen — a catalog of the four local notifications and what each does wh
 
 | ID | Trigger | Title | Body | On-tap target |
 |---|---|---|---|---|
-| `morning` | Daily 8:30 AM | *"Good morning."* | *"Nimbus is ready for today's outdoor break."* | `S-TODAY-01` |
 | `pre_block` | Dynamic: 30 min before projected block time | *"30 minutes left."* | *"You're about to hit your daily limit. Pause now if you want to save time for later."* | `S-TODAY-01` |
 | `block_start` | When `eventDidReachThreshold` fires (always on) | *"Apps are paused."* | *"Go outside to unlock — Nimbus is waiting."* | `S-VER-01` (deep link to verify) |
 | `streak_warn` *(Pro)* | 10 PM local if `didVerifyToday=false` and `currentStreak ≥ 3` | *"Don't break your <n>-day streak."* | *"Verify or it resets at midnight."* | `S-VER-01` |
@@ -2059,7 +2058,7 @@ Each journey references screen IDs from Part 1. Numbered steps assume no skippin
 ❷ iOS calls `SkyDeviceActivityMonitor.eventDidReachThreshold` → `ManagedSettingsStore().shield.applications = selection.applicationTokens` → `isCurrentlyBlocked=true`.
 ❸ `block_start` notification fires.
 ❹ User taps Instagram icon → `S-SHIELD-01` (custom shield) renders.
-❺ User taps "Go outside to unlock" → `sky://verify` → main app opens → `S-VER-01`.
+❺ User taps "Open Sky to unlock" → `pending_deep_link` written, shield closes → user opens Sky → `S-VER-01`.
 ❻ First-time path: `S-PERM-04` → permissions granted.
 ❼ User taps "I'm outside" → `S-VER-03` recording begins.
 ❽ User walks outside following prompts (0s, 6s, 14s, 22s). 30s elapses.

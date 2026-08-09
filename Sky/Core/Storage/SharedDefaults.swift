@@ -52,9 +52,17 @@ struct SharedDefaults {
         static let yesterdayDidVerify = "streak_yesterday_verified"
         static let yesterdayDidEmergency = "streak_yesterday_emergency"
         // Phase 15 — notification preferences, Night Mode, Pause, one-time primer
-        static let notifMorningEnabled = "notif_morning_enabled"
+        // (`notif_morning_enabled` retired — the 8:30 morning nudge was removed.)
         static let notifWarningEnabled = "notif_warning_enabled"
         static let notifStreakEnabled = "notif_streak_enabled"
+        /// `yyyy-MM-dd` of the last day each usage notification was posted. Written
+        /// by the monitor extension; the only thing that stops iOS re-firing an
+        /// already-crossed threshold from posting a duplicate.
+        static let notifWarningDay = "notif_warning_day"
+        static let notifBlockStartDay = "notif_blockstart_day"
+        /// JSON `[String: Int]` — the highest session-ladder rung acted on today,
+        /// keyed by "" (combined) or the app's base64 token (per-app).
+        static let lastFiredRungs = "last_fired_rungs"
         static let nightModeEnabled = "night_mode_enabled"
         static let pauseStartedAt = "pause_started_at"
         static let lastPauseDate = "last_pause_date"
@@ -87,6 +95,20 @@ struct SharedDefaults {
     var perAppLimitsData: Data? {
         get { defaults.data(forKey: Key.perAppLimits) }
         nonmutating set { defaults.set(newValue, forKey: Key.perAppLimits) }
+    }
+
+    /// `combinedLimitSeconds` as user-facing copy — "2 hours", "45 minutes".
+    ///
+    /// One place, because the same phrase appears on S-VER-06, S-TODAY-01 and
+    /// S-CFG-03, and they have to agree about what a session actually buys.
+    var sessionLengthLabel: String {
+        let seconds = combinedLimitSeconds
+        if seconds % 3600 == 0 {
+            let hours = seconds / 3600
+            return hours == 1 ? "1 hour" : "\(hours) hours"
+        }
+        let minutes = max(1, seconds / 60)
+        return minutes == 1 ? "1 minute" : "\(minutes) minutes"
     }
 
     var limitsEnabled: Bool {
@@ -188,12 +210,12 @@ struct SharedDefaults {
     }
 
     // MARK: Phase 15 — Notification preferences (opt-out; default ON)
-
-    /// Morning "hello" at 8:30 AM. Scheduled app-side by LocalNotificationScheduler.
-    var notifMorningEnabled: Bool {
-        get { defaults.object(forKey: Key.notifMorningEnabled) as? Bool ?? true }
-        nonmutating set { defaults.set(newValue, forKey: Key.notifMorningEnabled) }
-    }
+    //
+    // Sky posts at most two notifications a day, both consequences of the user's
+    // own usage. The 8:30 "Good morning" nudge was removed deliberately: a daily
+    // scheduled ping inviting you to pick up your phone works against an app whose
+    // purpose is fewer interruptions. See LocalNotificationScheduler for the
+    // migration that cancels the repeating request on already-installed devices.
 
     /// 30-minutes-before-block warning. Posted by the DeviceActivityMonitor
     /// extension when the paired warning threshold fires (read cross-process).
@@ -206,6 +228,38 @@ struct SharedDefaults {
     var notifStreakEnabled: Bool {
         get { defaults.object(forKey: Key.notifStreakEnabled) as? Bool ?? true }
         nonmutating set { defaults.set(newValue, forKey: Key.notifStreakEnabled) }
+    }
+
+    /// Day stamp of the last "30 minutes left" post, or "" if never.
+    ///
+    /// A `DeviceActivityEvent` threshold is supposed to fire once per interval, but
+    /// iOS re-evaluates already-crossed thresholds whenever monitoring is re-armed
+    /// with `includesPastActivity: true` — which a limit edit or an app-selection
+    /// change triggers. Without a day stamp that replay posts a fresh notification
+    /// at an arbitrary hour with no new usage behind it.
+    var notifWarningDay: String {
+        get { defaults.string(forKey: Key.notifWarningDay) ?? "" }
+        nonmutating set { defaults.set(newValue, forKey: Key.notifWarningDay) }
+    }
+
+    /// Day stamp of the last "Time's up" post, or "" if never. See `notifWarningDay`.
+    var notifBlockStartDay: String {
+        get { defaults.string(forKey: Key.notifBlockStartDay) ?? "" }
+        nonmutating set { defaults.set(newValue, forKey: Key.notifBlockStartDay) }
+    }
+
+    // MARK: Session ladder
+
+    /// Raw JSON for `[String: Int]` — the highest session-ladder rung the monitor
+    /// extension has acted on today, per ladder ("" = combined, base64 token =
+    /// per-app). Written by the extension; the app only ever clears it, at the
+    /// midnight reset.
+    ///
+    /// This is the high-water mark that makes a re-delivered threshold a no-op.
+    /// See `DeviceActivityService`'s header for why the ladder exists at all.
+    var lastFiredRungs: Data? {
+        get { defaults.data(forKey: Key.lastFiredRungs) }
+        nonmutating set { defaults.set(newValue, forKey: Key.lastFiredRungs) }
     }
 
     // MARK: Phase 15 — Night Mode (opt-in; default OFF)

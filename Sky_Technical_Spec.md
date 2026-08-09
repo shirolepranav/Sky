@@ -30,7 +30,7 @@ This document describes Sky's iOS-only implementation: architecture, frameworks,
 | **CoreMotion** | Barometric pressure delta (`CMAltimeter.startRelativeAltitudeUpdates`) |
 | **CloudKit** | Cross-device sync of user progress (private database) |
 | **StoreKit 2** | In-app purchases and subscriptions (`Product`, `Transaction`) |
-| **UserNotifications** | Local-only morning/streak notifications |
+| **UserNotifications** | Local-only usage + streak notifications (no morning nudge; see PRD §4.11) |
 | **AuthenticationServices** | Sign in with Apple (required for CloudKit user identity) |
 
 **Explicitly NOT used in v1.0:** RevenueCat, Firebase, Supabase, OneSignal, Mixpanel, PostHog, Sentry, any third-party SDK that sends data off-device.
@@ -235,21 +235,44 @@ let schedule = DeviceActivitySchedule(
     repeats: true
 )
 
-// Combined-mode example: single event for total budget
-let event = DeviceActivityEvent(
-    applications: selection.applicationTokens,
-    categories: selection.categoryTokens,
-    threshold: DateComponents(second: combinedLimitSeconds)
-)
+// Combined mode: a LADDER of events, one per session.
+//
+// A DeviceActivityEvent threshold fires at most once per schedule interval, and
+// Sky registers one interval per day. A single "limit reached" event therefore
+// cannot fire again after the user verifies and unlocks — which is why a pass
+// used to buy the rest of the day. Pre-registering rungs at 1×, 2×, 3×… the
+// session length gives each subsequent block its own event, already armed and
+// counting while the user is unlocked.
+var events: [DeviceActivityEvent.Name: DeviceActivityEvent] = [:]
+for rung in 1...DeviceActivityService.ladderDepth(sessionSeconds: combinedLimitSeconds) {
+    events[.sessionLimit(rung: rung)] = DeviceActivityEvent(
+        applications: selection.applicationTokens,
+        categories: selection.categoryTokens,
+        threshold: DateComponents(second: combinedLimitSeconds * rung),
+        includesPastActivity: true
+    )
+    // Plus a paired `.sessionWarning(rung:)` 30 minutes earlier, when the
+    // session is longer than 30 minutes (otherwise rung n's warning would land
+    // on or before rung n−1's limit).
+}
 
-try center.startMonitoring(
-    .daily,
-    during: schedule,
-    events: [.dailyLimitReached: event]
-)
+try center.startMonitoring(.daily, during: schedule, events: events)
 ```
 
-When the threshold is reached, iOS calls `SkyDeviceActivityMonitor.eventDidReachThreshold(_:activity:)` in the extension target.
+Ladder depth trades against session length so the horizon stays near 12 hours of
+cumulative usage, capped at 8 rungs: 1 h → 8, 2 h → 6, 3 h → 4. Per-app mode
+divides a ~20-event budget across the selected apps, degrading to one rung each
+when many apps are configured.
+
+When a threshold is reached, iOS calls
+`SkyDeviceActivityMonitor.eventDidReachThreshold(_:activity:)` in the extension
+target. The extension records the highest rung it has acted on per ladder in
+`last_fired_rungs` and ignores anything at or below it — iOS re-delivers already
+crossed thresholds whenever monitoring re-arms with `includesPastActivity: true`,
+and acting on a replay would re-shield apps the user had just earned back.
+
+`configFingerprint` carries a `v2|` prefix for this event shape, so every
+installed device re-registers once on the first foreground after the update.
 
 ### 7.4 Applying the Shield
 
@@ -286,7 +309,12 @@ override func intervalDidStart(for activity: DeviceActivityName) {
 - Primary button: `"Go outside to unlock"` (action: deep link back to main app's verification flow)
 - Secondary button: `"I can't go outside right now"` (action: deep link to emergency unlock)
 
-`SkyShieldAction` extension target handles button taps via `handle(action:for:completionHandler:)` and opens the main app via universal link `sky://verify` or `sky://emergency`.
+`SkyShieldAction` handles button taps via `handle(action:for:completionHandler:)`.
+
+⚠️ Two things here are easy to get wrong and fail *silently*:
+
+1. **The extension point is `com.apple.ManagedSettings.shield-action-service`** — note the missing `UI`. Shield *configuration* lives under `ManagedSettingsUI`, shield *action* does not. The wrong string builds, signs and embeds cleanly; PluginKit simply never matches the appex, so the delegate is never invoked and both buttons are inert. `ShieldActionExtensionPointTests` pins it against the built product.
+2. **An app extension cannot launch its container app.** `UIApplication.shared` is unavailable, so there is no `sky://verify` open from here. The extension writes `pending_deep_link` ("verify" / "emergency") to the App Group and returns `.close`; `SkyApp.consumePendingDeepLink()` reads and clears it on the next foreground. The `sky://` scheme remains registered for external callers.
 
 ### 7.6 Unlocking Apps
 
@@ -538,7 +566,10 @@ import UserNotifications
 let center = UNUserNotificationCenter.current()
 try await center.requestAuthorization(options: [.alert, .sound])
 
-// Morning reminder at 8:30 AM local
+// (The 8:30 AM morning reminder was removed — see PRD §4.11.)
+// Retired identifiers must still be cancelled actively: the old request was
+// registered with `repeats: true` and survives on every upgrading device.
+// LocalNotificationScheduler.Retired.all carries the list.
 var morning = DateComponents()
 morning.hour = 8
 morning.minute = 30

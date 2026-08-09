@@ -126,7 +126,7 @@ struct TodayView: View {
                         .onTapGesture { showingLimitConfig = true }
                         .accessibilityValue(ringAccessibilityValue)
                         .accessibilityLabel("Daily usage ring")
-                        .accessibilityHint("Opens the daily limit editor")
+                        .accessibilityHint("Opens the session limit editor")
                         .accessibilityAddTraits(.isButton)
                         .accessibilityIdentifier("today.usageRing")
                         .skyEntrance(2, revealed: revealed)
@@ -270,7 +270,7 @@ struct TodayView: View {
 
             case .noLimit:
                 SkyPrimaryButton("Set your limit") { showingLimitConfig = true }
-                    .accessibilityHint("Opens the daily limit editor")
+                    .accessibilityHint("Opens the session limit editor")
                     .accessibilityIdentifier("today.setLimitButton")
 
             case .verifiedToday, .emergencyUnlocked, .unblocked, .paused:
@@ -295,16 +295,16 @@ struct TodayView: View {
     }
 
     private var bannerBody: String {
-        let limitHours = store.combinedLimitSeconds / 3600
+        let session = store.sessionLengthLabel
         switch appState {
         case .entitlementMissing: return "Sky needs Screen Time access again to block your apps."
         case .paused:           return pausedBannerBody
-        case .unblocked:        return "Limit: \(limitHours) hour\(limitHours == 1 ? "" : "s") today."
-        case .blocked:          return "Verify outside to unlock the apps for the rest of today."
-        case .verifiedToday:    return "Apps are open until midnight. Nice work."
+        case .unblocked:        return "\(session) of use, then a trip outside."
+        case .blocked:          return "Verify outside for another \(session) of use."
+        case .verifiedToday:    return "Apps are open for your next \(session) of use. Nice work."
         case .emergencyUnlocked: return "Streak reset. Tomorrow's a fresh start."
         case .noApps:           return "Choose the apps you'd like Sky to manage."
-        case .noLimit:          return "Set your daily limit to start."
+        case .noLimit:          return "Set your session limit to start."
         }
     }
 

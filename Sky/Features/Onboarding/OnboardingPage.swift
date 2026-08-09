@@ -46,7 +46,7 @@ enum OnboardingPage: Int, CaseIterable, Identifiable {
         case .pickApps:
             "You'll choose from your phone's apps. Sky never sees their names — only you do."
         case .budget:
-            "One hour. Two. Three. When you hit your limit, the apps pause until you take a break outside."
+            "One hour. Two. Three. When you hit your limit, the apps pause until you take a break outside — and every trip outside earns you that time again."
         case .goOutside:
             "To unlock the apps, head outside and record a short video. Sky checks the sky, the light, and your steps — all on your phone."
         case .ready:

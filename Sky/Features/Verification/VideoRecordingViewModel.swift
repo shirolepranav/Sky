@@ -39,11 +39,25 @@ final class RealCaptureController: CaptureController {
             .first { $0.device.hasMediaType(.video) }?.device
     }
 
+    /// Configures the session for recording. **Must be idempotent** — a retry after
+    /// a failed verification calls this a second time on the same long-lived
+    /// session.
+    ///
+    /// Without the teardown below, the second call tried to add a video input to a
+    /// session that already had one; `canAddInput` returns false in that case, so
+    /// it took the `cameraUnavailable` path and the camera never came back — while
+    /// `makePreviewSession()` still handed out the stale session, so the recording
+    /// screen mounted a preview layer over a dead session. That was the frozen
+    /// "Try again" screen.
     func configure(preset: AVCaptureSession.Preset, completion: @escaping (Result<Void, Error>) -> Void) {
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self else { return }
             self.session.beginConfiguration()
             self.session.sessionPreset = preset
+
+            // Start from a clean session so a re-configure behaves like the first.
+            for input in self.session.inputs { self.session.removeInput(input) }
+            for output in self.session.outputs { self.session.removeOutput(output) }
 
             guard let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back),
                   let input = try? AVCaptureDeviceInput(device: device),
@@ -184,6 +198,13 @@ final class VideoRecordingViewModel: NSObject, ObservableObject {
     // MARK: Session lifecycle
 
     func startSession() async {
+        // Defence in depth: the retry paths call `reset()` explicitly, but this
+        // instance outlives every attempt, so starting from a clean slate here
+        // means a caller that forgets cannot resurrect the previous attempt's
+        // countdown and prompt index. Must precede `preflight()`, which sets the
+        // storage/battery warnings this clears.
+        reset()
+
         guard preflight() else { return }
         recordingState = .requestingCamera
 
@@ -224,6 +245,28 @@ final class VideoRecordingViewModel: NSObject, ObservableObject {
         timerCancellable = nil
         unregisterInterruptionObserver()
         captureController.stopRunning()
+    }
+
+    /// Returns the view model to its pre-first-attempt state so `startSession()`
+    /// can be called again.
+    ///
+    /// The coordinator owns exactly one of these as a `@StateObject` for the whole
+    /// verification flow, so every retry path reuses this instance. Without a reset
+    /// the second attempt inherited `elapsedSeconds == 30` and
+    /// `currentPromptIndex == 3`, which rendered the *last* prompt ("Last bit —
+    /// show where you are.") over a countdown reading 0 and an empty progress ring
+    /// — and the first tick, already past `recordingDuration`, immediately stopped
+    /// the recording. Call this from every path that sends the user back to
+    /// S-VER-01 (see `VerificationCoordinatorView.restartFlow`).
+    func reset() {
+        stopSession()
+        deletePartialFile()
+        elapsedSeconds = 0
+        currentPromptIndex = 0
+        showCancelConfirmation = false
+        storageWarning = false
+        batteryWarning = false
+        recordingState = .idle
     }
 
     // MARK: Countdown timer

@@ -55,7 +55,13 @@ final class SkyShieldConfiguration: ShieldConfigurationDataSource {
                 text: "\(kMascotName) is waiting outside for you ☁",
                 color: UIColor(red: 90/255, green: 99/255, blue: 115/255, alpha: 1)
             ),
-            primaryButtonLabel: .init(text: "Go outside to unlock", color: .white),
+            // Both buttons resolve to `ShieldActionResponse.close` in SkyShieldAction,
+            // which dismisses the shield *and* the blocked app — the user lands on the
+            // Home screen and has to tap Sky themselves (an app extension has no
+            // supported way to launch its container). The label therefore names that
+            // next step rather than promising the shield will take them somewhere.
+            // The outdoor framing is carried by the subtitle above.
+            primaryButtonLabel: .init(text: "Open \(kAppName) to unlock", color: .white),
             // #52822A mossGreenAction — only green that clears WCAG AA with white label
             primaryButtonBackgroundColor: UIColor(red: 82/255, green: 130/255, blue: 42/255, alpha: 1),
             // #2D3748 ink

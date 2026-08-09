@@ -42,6 +42,15 @@ enum MidnightResetRecovery {
         /// The stamp was stale but today's state was already written by the
         /// extension after midnight. The stamp is advanced and *nothing else is
         /// touched* — see the `todayStateDay` discussion below.
+        ///
+        /// This branch cannot evaluate yesterday: today's flags have already
+        /// overwritten yesterday's, so any streak hand-off written here would be
+        /// a guess. The fix is to keep the branch unreachable rather than to
+        /// guess — every writer of today's state rolls the day over first (see
+        /// `rollDayOverBeforeWritingTodayState`), and `SkyApp` observes
+        /// `NSCalendarDayChanged` so an app held open across midnight resets on
+        /// the spot. If it is somehow still reached, the day goes unevaluated and
+        /// the streak survives, which is the failure direction to prefer.
         case stampOnly
         /// The stamp is a day in the future (clock moved back, or travel across
         /// the date line). Adopted without clearing anything: going backwards in
@@ -137,9 +146,39 @@ enum MidnightResetRecovery {
         store.isCurrentlyBlocked = false
         store.didVerifyToday = false
         store.didEmergencyUnlockToday = false
+
+        // Re-open the notification budget (mirrors the extension).
+        store.notifWarningDay = ""
+        store.notifBlockStartDay = ""
+
+        // Back to the bottom of the session ladder. Leaving yesterday's
+        // high-water mark in place would make every one of today's rungs look
+        // like a replay, and the user would never be blocked again.
+        store.lastFiredRungs = nil
+
         store.todayStateDay = today
         store.todayResetToken = today
 
         return .recovered
+    }
+
+    /// Rolls the day over before the caller writes today's state.
+    ///
+    /// Call this immediately before setting `isCurrentlyBlocked` / `didVerifyToday`
+    /// / `didEmergencyUnlockToday` and stamping `todayStateDay`. It mirrors what
+    /// `SkyDeviceActivityMonitor.eventDidReachThreshold` does at its top, and for
+    /// the same reason: writing today's state while `todayResetToken` still holds
+    /// yesterday strands the recovery in `.stampOnly`, where it can no longer tell
+    /// yesterday's flags from today's and so never evaluates the previous day at
+    /// all. A streak then survives a day it should not have.
+    ///
+    /// Cheap and idempotent — a no-op (`.upToDate`) on all but the first call
+    /// after a real midnight.
+    static func rollDayOverBeforeWritingTodayState(
+        store: SharedDefaults = SharedDefaults(),
+        now: Date = Date(),
+        timeZone: TimeZone = .current
+    ) {
+        runIfNeeded(store: store, now: now, timeZone: timeZone)
     }
 }

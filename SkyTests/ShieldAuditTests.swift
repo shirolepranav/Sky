@@ -59,6 +59,7 @@ final class ShieldAuditTests: XCTestCase {
         let sources: [ShieldAudit.Source] = [
             .monitorThreshold, .monitorIntervalStart, .verificationSuccess,
             .emergency, .pause, .midnightRecovery, .reconcile, .debug,
+            .notifWarning, .notifBlockStart,
         ]
         for source in sources {
             XCTAssertFalse(
@@ -101,5 +102,38 @@ final class ShieldAuditTests: XCTestCase {
         XCTAssertEqual(lines.count, 2)
         XCTAssertTrue(lines[0].contains("verification.success"))
         XCTAssertTrue(lines[1].contains("monitor.threshold"))
+    }
+
+    // MARK: - Notification entries
+
+    /// Notifications share the shield trail so the debug menu can show one
+    /// chronological story, but they need to be readable on their own — that view
+    /// is what answers "why did Sky buzz me when I hadn't opened anything?".
+    func testNotificationLinesFilterOutShieldWrites() {
+        let base = Date(timeIntervalSince1970: 1_786_104_000)
+        ShieldAudit.record(.applied, source: .monitorThreshold, appCount: 4,
+                           now: base, defaults: defaults)
+        ShieldAudit.record(.notified, source: .notifBlockStart, appCount: 0,
+                           now: base.addingTimeInterval(1), defaults: defaults)
+        ShieldAudit.record(.suppressed, source: .notifWarning, appCount: 0,
+                           now: base.addingTimeInterval(2), defaults: defaults)
+
+        let lines = ShieldAudit.notificationLines(defaults: defaults)
+        XCTAssertEqual(lines.count, 2, "shield writes must not appear here")
+        XCTAssertTrue(lines[0].contains("suppressed"), "newest first")
+        XCTAssertTrue(lines[0].contains("notif.warning"))
+        XCTAssertTrue(lines[1].contains("notified"))
+        XCTAssertTrue(lines[1].contains("notif.blockStart"))
+    }
+
+    /// Both new actions round-trip through the same `|`-separated line format the
+    /// extension writes by hand.
+    func testNotificationActionsRoundTrip() {
+        ShieldAudit.record(.notified, source: .notifWarning, appCount: 0,
+                           now: Date(), defaults: defaults)
+
+        let entry = ShieldAudit.entries(defaults: defaults).first
+        XCTAssertEqual(entry?.action, "notified")
+        XCTAssertEqual(entry?.source, "notif.warning")
     }
 }

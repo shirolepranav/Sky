@@ -22,7 +22,8 @@ import ManagedSettings
 enum ShieldService {
 
     /// Clears all active application and category shields, allowing the user's
-    /// selected apps to open until the next midnight reset.
+    /// selected apps to open until the next session ends (or, for an emergency
+    /// unlock or a pause, until the midnight reset).
     ///
     /// The four legitimate callers are a passed verification, a completed
     /// emergency unlock, a Pro pause, and the midnight reset. Nothing else may
@@ -89,11 +90,23 @@ enum ShieldService {
     // MARK: - Decision (internal so unit tests can drive it without ManagedSettings)
 
     /// Today's state, in one place. Mirrors the precedence the monitor extension
-    /// applies: a pause outranks everything, then either unlock path.
+    /// applies: a pause outranks everything, then the emergency unlock.
+    ///
+    /// ⚠️ `didVerifyToday` is deliberately **not** consulted. It used to be, and
+    /// that single line was what made a passed verification open the apps until
+    /// midnight — one 30-second video at 9am bought fifteen unmetered hours, which
+    /// is the opposite of what Sky is for. A verification now clears
+    /// `isCurrentlyBlocked` and buys one session; the next rung of the ladder sets
+    /// the flag again once that session's usage is spent
+    /// (`SkyDeviceActivityMonitor`). `didVerifyToday` still drives the streak, the
+    /// mascot, and today's copy — just not the shield.
+    ///
+    /// An emergency unlock does still cover the whole day. It is friction-gated and
+    /// streak-costing already; making someone retype a reason every two hours
+    /// because they genuinely cannot get outside is punishment, not friction.
     static func shouldBeBlocked(store: SharedDefaults) -> Bool {
         guard store.isCurrentlyBlocked else { return false }
         guard !store.isPaused else { return false }
-        guard !store.didVerifyToday else { return false }
         guard !store.didEmergencyUnlockToday else { return false }
         return true
     }

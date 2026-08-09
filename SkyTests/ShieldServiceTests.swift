@@ -44,10 +44,28 @@ final class ShieldServiceTests: XCTestCase {
         XCTAssertFalse(ShieldService.shouldBeBlocked(store: store))
     }
 
-    /// A passed verification buys the rest of the day. Re-shielding here would
-    /// take back an unlock the user went outside for.
-    func testVerifiedTodayShouldNotBeBlocked() {
+    /// A verification buys one *session*, not the rest of the day, so
+    /// `didVerifyToday` must not suppress the shield. It used to, and that was what
+    /// made a single 30-second video at 9am open the apps until midnight.
+    ///
+    /// The unlock itself is expressed by `isCurrentlyBlocked = false` (written by
+    /// `VerificationSuccessView.performUnlock`). When the next ladder rung fires and
+    /// sets the flag again, the shield has to come back even though the user did
+    /// verify earlier today.
+    func testVerifiedTodayDoesNotSuppressALaterSessionBlock() {
         store.isCurrentlyBlocked = true
+        store.didVerifyToday = true
+
+        XCTAssertTrue(
+            ShieldService.shouldBeBlocked(store: store),
+            "a verification earlier today must not keep the next session unlocked"
+        )
+    }
+
+    /// The other half of that: immediately after verifying, the flag is down and
+    /// nothing re-shields until the next rung.
+    func testVerificationUnlockIsRespectedUntilTheNextRung() {
+        store.isCurrentlyBlocked = false
         store.didVerifyToday = true
 
         XCTAssertFalse(ShieldService.shouldBeBlocked(store: store))
@@ -55,6 +73,10 @@ final class ShieldServiceTests: XCTestCase {
 
     /// The emergency unlock already cost the user their streak; it must not also
     /// be undone by reconciliation.
+    ///
+    /// Unlike a verification this covers the whole day. Re-locking someone every
+    /// two hours who has told us they cannot get outside — and making them retype a
+    /// reason each time — is punishment rather than friction.
     func testEmergencyUnlockedTodayShouldNotBeBlocked() {
         store.isCurrentlyBlocked = true
         store.didEmergencyUnlockToday = true

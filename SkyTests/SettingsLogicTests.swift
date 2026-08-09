@@ -68,8 +68,13 @@ final class SettingsLogicTests: XCTestCase {
     // MARK: - Notification preference defaults
 
     func testNotificationTogglesDefaultOn() {
-        XCTAssertTrue(store.notifMorningEnabled)
         XCTAssertTrue(store.notifWarningEnabled)
         XCTAssertTrue(store.notifStreakEnabled)
+    }
+
+    /// Both start empty so the first post of a new day always goes through.
+    func testNotificationDayStampsStartEmpty() {
+        XCTAssertEqual(store.notifWarningDay, "")
+        XCTAssertEqual(store.notifBlockStartDay, "")
     }
 }

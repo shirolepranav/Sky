@@ -14,7 +14,6 @@ struct NotificationTogglesView: View {
     @EnvironmentObject private var streakManager: StreakManager
 
     @State private var store = SharedDefaults()
-    @State private var morning = SharedDefaults().notifMorningEnabled
     @State private var warning = SharedDefaults().notifWarningEnabled
     @State private var streak  = SharedDefaults().notifStreakEnabled
     @State private var authStatus: UNAuthorizationStatus = .notDetermined
@@ -37,7 +36,6 @@ struct NotificationTogglesView: View {
             }
 
             Section {
-                toggleRow("Morning reminder (8:30 AM)", isOn: $morning)
                 toggleRow("30-minute warning before block", isOn: $warning)
 
                 // Block start — always on per PRD §4.11.
@@ -57,7 +55,7 @@ struct NotificationTogglesView: View {
                     proLockedRow("Streak warning at 10 PM")
                 }
             } footer: {
-                Text("All notifications are scheduled by your phone. Sky doesn't use push servers.")
+                Text("Sky sends at most two a day, and only when your own usage triggers them. All of them are scheduled by your phone — Sky doesn't use push servers.")
                     .skyText(.caption, color: SkyColor.inkSoft)
             }
         }
@@ -67,7 +65,6 @@ struct NotificationTogglesView: View {
         .navigationTitle("Notifications")
         .navigationBarTitleDisplayMode(.inline)
         .task { authStatus = await scheduler.authorizationStatus() }
-        .onChange(of: morning) { _, v in store.notifMorningEnabled = v; reschedule() }
         .onChange(of: warning) { _, v in store.notifWarningEnabled = v; reschedule() }
         .onChange(of: streak)  { _, v in store.notifStreakEnabled  = v; reschedule() }
         .accessibilityIdentifier("notif.root")

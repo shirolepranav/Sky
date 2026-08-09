@@ -22,16 +22,28 @@ final class ShieldConfigurationTests: XCTestCase {
         XCTAssertTrue(title.contains("Time's up"))
     }
 
+    // MARK: Subtitle — carries the outdoor framing
+
+    func testSubtitleMentionsOutside() {
+        let subtitle = "Nimbus is waiting outside for you ☁"
+        XCTAssertTrue(subtitle.lowercased().contains("outside"))
+    }
+
     // MARK: Primary button
 
     func testPrimaryButtonLabelIsNotEmpty() {
-        let label = "Go outside to unlock"
+        let label = "Open Sky to unlock"
         XCTAssertFalse(label.isEmpty)
     }
 
-    func testPrimaryButtonLabelMentionsOutside() {
-        let label = "Go outside to unlock"
-        XCTAssertTrue(label.lowercased().contains("outside"))
+    /// Both shield buttons resolve to `ShieldActionResponse.close`, which drops the
+    /// user on the Home screen — an app extension cannot launch its container. The
+    /// label has to name that next step or the flow reads as a dead end; the
+    /// outdoor framing moved to the subtitle.
+    func testPrimaryButtonLabelNamesTheAppToOpen() {
+        let label = "Open Sky to unlock"
+        XCTAssertTrue(label.contains("Sky"))
+        XCTAssertTrue(label.lowercased().contains("open"))
     }
 
     // MARK: Auxiliary button — brand voice (PRD §7: never guilt-trip)

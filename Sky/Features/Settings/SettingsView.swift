@@ -14,7 +14,6 @@ struct SettingsView: View {
     @EnvironmentObject private var appearance: AppearanceManager
 
     @State private var store = SharedDefaults()
-    @State private var morning = SharedDefaults().notifMorningEnabled
     @State private var warning = SharedDefaults().notifWarningEnabled
     @State private var streak  = SharedDefaults().notifStreakEnabled
     @State private var debugEnabled = DebugMenuFlag.isEnabled
@@ -41,7 +40,6 @@ struct SettingsView: View {
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.large)
             .onAppear { reloadFlags() }
-            .onChange(of: morning) { _, v in store.notifMorningEnabled = v; reschedule() }
             .onChange(of: warning) { _, v in store.notifWarningEnabled = v; reschedule() }
             .onChange(of: streak)  { _, v in store.notifStreakEnabled  = v; reschedule() }
             .fullScreenCover(isPresented: $showPaywall) {
@@ -56,7 +54,7 @@ struct SettingsView: View {
 
     private var appsAndLimitsSection: some View {
         Section("Apps & Limits") {
-            NavigationLink("Apps & daily limits") { SettingsAppsAndLimitsView() }
+            NavigationLink("Apps & limits") { SettingsAppsAndLimitsView() }
         }
     }
 
@@ -91,7 +89,6 @@ struct SettingsView: View {
 
     private var notificationsSection: some View {
         Section("Notifications") {
-            Toggle("Morning reminder", isOn: $morning).tint(SkyColor.mossGreen)
             Toggle("30-minute warning", isOn: $warning).tint(SkyColor.mossGreen)
             if storeKit.isPro {
                 Toggle("Streak warning", isOn: $streak).tint(SkyColor.mossGreen)
@@ -160,7 +157,6 @@ struct SettingsView: View {
 
     private func reloadFlags() {
         store = SharedDefaults()
-        morning = store.notifMorningEnabled
         warning = store.notifWarningEnabled
         streak = store.notifStreakEnabled
         debugEnabled = DebugMenuFlag.isEnabled

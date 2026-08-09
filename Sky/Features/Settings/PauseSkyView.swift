@@ -144,6 +144,10 @@ struct PauseSkyView: View {
 
     private func confirmPause() {
         let now = Date()
+        // Roll the day over first if a midnight passed while Settings stayed open —
+        // otherwise this write strands the recovery in `.stampOnly` and yesterday
+        // is never evaluated for the streak.
+        MidnightResetRecovery.rollDayOverBeforeWritingTodayState(store: store, now: now)
         store.pauseStartedAt = now
         store.lastPauseDate = now
         store.isCurrentlyBlocked = false

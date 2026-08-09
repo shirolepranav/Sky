@@ -239,4 +239,87 @@ final class MidnightResetRecoveryTests: XCTestCase {
         XCTAssertTrue(store.isCurrentlyBlocked)
         XCTAssertEqual(store.todayResetToken, stamp(noon))
     }
+
+    // MARK: Rolling the day over before writing today's state
+
+    /// The `.stampOnly` trap: an app-side writer (a verification, an emergency
+    /// unlock, a pause) that stamps `todayStateDay` while `todayResetToken` still
+    /// holds yesterday leaves the recovery unable to tell yesterday's flags from
+    /// today's. It then returns `.stampOnly` forever, never writes the streak
+    /// hand-off, and the previous day is never evaluated — a streak survives a day
+    /// it should have broken.
+    ///
+    /// Every such writer now rolls the day over first. This pins that the roll-over
+    /// produces a real reset with the hand-off intact.
+    func testRollingOverBeforeWritingTodayStateEvaluatesYesterday() {
+        let yesterday = noon.addingTimeInterval(-24 * 60 * 60)
+        store.todayResetToken = stamp(yesterday)
+        store.todayStateDay = stamp(yesterday)
+        store.didVerifyToday = true          // yesterday's verification
+        store.isCurrentlyBlocked = true
+
+        MidnightResetRecovery.rollDayOverBeforeWritingTodayState(store: store, now: noon)
+
+        XCTAssertTrue(store.pendingMidnightReset, "yesterday must be handed to StreakManager")
+        XCTAssertTrue(store.yesterdayDidVerify, "yesterday's verification must be preserved")
+        XCTAssertFalse(store.didVerifyToday, "today starts unverified")
+        XCTAssertEqual(store.todayResetToken, stamp(noon))
+    }
+
+    /// Without the roll-over, writing today's state on a stale token is exactly
+    /// what strands the recovery. This documents the failure it prevents.
+    func testWritingTodayStateOnAStaleTokenStrandsTheRecovery() {
+        let yesterday = noon.addingTimeInterval(-24 * 60 * 60)
+        store.todayResetToken = stamp(yesterday)
+
+        // A verification at 00:05 that skipped the roll-over.
+        store.didVerifyToday = true
+        store.stampTodayState(now: noon)
+
+        let outcome = MidnightResetRecovery.runIfNeeded(
+            store: store, now: noon, clearShields: {})
+
+        XCTAssertEqual(outcome, .stampOnly)
+        XCTAssertFalse(
+            store.pendingMidnightReset,
+            "this is the gap: yesterday is never evaluated once today's state is written"
+        )
+    }
+
+    /// Called twice in a row, the roll-over is a no-op the second time — it must be
+    /// safe to sprinkle at the top of every writer.
+    func testRollingOverTwiceIsIdempotent() {
+        let yesterday = noon.addingTimeInterval(-24 * 60 * 60)
+        store.todayResetToken = stamp(yesterday)
+        store.todayStateDay = stamp(yesterday)
+
+        MidnightResetRecovery.rollDayOverBeforeWritingTodayState(store: store, now: noon)
+        store.pendingMidnightReset = false   // simulate StreakManager consuming it
+
+        MidnightResetRecovery.rollDayOverBeforeWritingTodayState(store: store, now: noon)
+
+        XCTAssertFalse(
+            store.pendingMidnightReset,
+            "a second roll-over must not hand off an already-cleared day and zero a live streak"
+        )
+    }
+
+    // MARK: Notification budget
+
+    /// The per-day notification caps are day-stamped, so the reset has to re-open
+    /// them or the new day's first genuine threshold event stays silent.
+    func testResetReopensTheNotificationBudget() {
+        let yesterday = noon.addingTimeInterval(-24 * 60 * 60)
+        store.todayResetToken = stamp(yesterday)
+        store.todayStateDay = stamp(yesterday)
+        store.notifWarningDay = stamp(yesterday)
+        store.notifBlockStartDay = stamp(yesterday)
+
+        let outcome = MidnightResetRecovery.runIfNeeded(
+            store: store, now: noon, clearShields: {})
+
+        XCTAssertEqual(outcome, .recovered)
+        XCTAssertEqual(store.notifWarningDay, "")
+        XCTAssertEqual(store.notifBlockStartDay, "")
+    }
 }

@@ -163,6 +163,14 @@ struct SkyApp: App {
                 try? await storeKit.loadProducts()
                 await storeKit.refreshEntitlement()
             }
+            // An app left in the foreground across midnight produces no scenePhase
+            // change and no `.task`, so neither recovery entry point above runs and
+            // the day never rolls over. This is the third trigger: iOS posts it the
+            // moment the local calendar day changes (and on time-zone shifts).
+            .onReceive(NotificationCenter.default.publisher(for: .NSCalendarDayChanged)) { _ in
+                // NSCalendarDayChanged is posted on a background thread.
+                Task { @MainActor in handleDayChange() }
+            }
             .onOpenURL { url in
                 deepLinkDestination = SkyDeepLink(url: url)
             }
@@ -197,6 +205,16 @@ struct SkyApp: App {
                     .environmentObject(streakManager)
             }
         }
+    }
+
+    /// Rolls the day over while the app is open. Same ordering as the `.active`
+    /// handler and for the same reasons: the reset clears the flags the shield
+    /// repair and the streak hand-off both read.
+    private func handleDayChange() {
+        MidnightResetRecovery.runIfNeeded()
+        ShieldService.reconcile()
+        mascotManager.refreshState()
+        streakManager.refreshOnForeground()
     }
 
     /// Re-arms the calendar-triggered local notifications from current prefs.

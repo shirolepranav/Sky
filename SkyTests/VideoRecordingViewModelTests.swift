@@ -19,7 +19,10 @@ final class MockCaptureController: CaptureController {
     private var recordingDelegate: AVCaptureFileOutputRecordingDelegate?
     private var recordingURL: URL?
 
+    private(set) var configureCallCount = 0
+
     func configure(preset: AVCaptureSession.Preset, completion: @escaping (Result<Void, Error>) -> Void) {
+        configureCallCount += 1
         completion(.success(()))
     }
 
@@ -153,5 +156,100 @@ final class VideoRecordingViewModelTests: XCTestCase {
         // 22s → prompt 3
         for _ in 0..<8 { vm._tick() }
         XCTAssertEqual(vm.currentPromptIndex, 3, "Prompt 3 should show at 22s")
+    }
+
+    // MARK: Retry / reset
+
+    /// The reported bug: tapping "Try again" after a failed verification showed the
+    /// *last* prompt ("Last bit — show where you are.") over a countdown reading 0
+    /// and an empty ring, instead of restarting the recording.
+    ///
+    /// The coordinator owns one view model for the whole flow, so the second
+    /// attempt inherited `elapsedSeconds == 30` and `currentPromptIndex == 3` from
+    /// the first. Every existing test above starts from `_primeForTesting`, which
+    /// zeroes exactly these two — which is precisely why none of them caught it.
+    func testResetReturnsToTheFirstPromptAndAFullCountdown() {
+        vm._primeForTesting()
+        vm.startCountdownTimer()
+        for _ in 0..<30 { vm._tick() }
+
+        // Precondition: this is the state a completed attempt leaves behind.
+        XCTAssertEqual(vm.elapsedSeconds, 30)
+        XCTAssertEqual(vm.currentPromptIndex, 3)
+        XCTAssertEqual(vm.currentPromptText, "Last bit — show where you are.")
+
+        vm.reset()
+
+        XCTAssertEqual(vm.elapsedSeconds, 0, "countdown must read 30, not 0")
+        XCTAssertEqual(vm.currentPromptIndex, 0)
+        XCTAssertEqual(vm.currentPromptText, "Hold steady, point your camera up.")
+        XCTAssertEqual(vm.recordingState, .idle)
+    }
+
+    /// After a reset the timer must actually run again. Before the fix the first
+    /// tick of a retry started from 30, immediately tripped the `>= 30` auto-stop,
+    /// and produced a one-second clip.
+    func testResetAllowsAFullSecondAttempt() {
+        vm._primeForTesting()
+        vm.startCountdownTimer()
+        for _ in 0..<30 { vm._tick() }
+        vm.reset()
+
+        // Second attempt.
+        vm._primeForTesting()
+        vm.startCountdownTimer()
+        for _ in 0..<6 { vm._tick() }
+
+        XCTAssertEqual(vm.elapsedSeconds, 6, "the retry must count from zero")
+        XCTAssertEqual(vm.currentPromptIndex, 1, "prompts must re-sequence from the start")
+    }
+
+    /// A retry must not leave the abandoned attempt's video on disk — verification
+    /// footage is deleted immediately, pass or fail (CLAUDE.md privacy invariant).
+    func testResetDeletesThePartialFile() throws {
+        try Data("partial".utf8).write(to: tempURL)
+        vm._primeForTesting(outputURL: tempURL)
+
+        vm.reset()
+
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: tempURL.path),
+            "an abandoned attempt's video must not survive the retry"
+        )
+    }
+
+    /// The other half of the bug lived in `RealCaptureController`: it re-added a
+    /// video input to a session that already had one, `canAddInput` returned false,
+    /// and the retry failed with `cameraUnavailable` while `makePreviewSession()`
+    /// still handed out the stale session — a preview layer over a dead session.
+    ///
+    /// The real controller needs hardware, so what is asserted here is the property
+    /// that matters and that holds in every environment: configuring twice gives
+    /// the same answer as configuring once. On the simulator both calls fail (no
+    /// camera); on a device both succeed. A non-idempotent implementation is the
+    /// only way to get two different outcomes.
+    func testRealCaptureControllerConfigureIsIdempotent() {
+        let controller = RealCaptureController()
+
+        let first = expectation(description: "first configure")
+        var firstSucceeded = false
+        controller.configure(preset: .hd1920x1080) { result in
+            firstSucceeded = (try? result.get()) != nil
+            first.fulfill()
+        }
+        wait(for: [first], timeout: 5)
+
+        let second = expectation(description: "second configure")
+        var secondSucceeded = false
+        controller.configure(preset: .hd1920x1080) { result in
+            secondSucceeded = (try? result.get()) != nil
+            second.fulfill()
+        }
+        wait(for: [second], timeout: 5)
+
+        XCTAssertEqual(
+            firstSucceeded, secondSucceeded,
+            "re-configuring an already-configured session must not change the outcome"
+        )
     }
 }

@@ -40,6 +40,12 @@ final class SkyDeviceActivityMonitor: DeviceActivityMonitor {
         // Phase 15 — Pause + notification preference (mirrors SharedDefaults.Key)
         static let pauseStartedAt        = "pause_started_at"
         static let notifWarningEnabled   = "notif_warning_enabled"
+        // Per-day notification caps (mirrors SharedDefaults.Key)
+        static let notifWarningDay       = "notif_warning_day"
+        static let notifBlockStartDay    = "notif_blockstart_day"
+        /// JSON `[String: Int]` — highest ladder rung acted on today, keyed by
+        /// "" (combined) or the app's base64 token (per-app).
+        static let lastFiredRungs        = "last_fired_rungs"
     }
 
     /// Local-notification identifiers (event-driven; posted from this extension).
@@ -50,13 +56,28 @@ final class SkyDeviceActivityMonitor: DeviceActivityMonitor {
 
     // Event-name format mirrors DeviceActivityEvent.Name in DeviceActivityService.swift
     // (this target cannot import the Sky module). Update both if it changes.
+    //
+    // Names carry a trailing `_<rung>`: `sessionLimit_2`, `perAppWarn_<b64>_3`.
+    // The rung is what lets a session end more than once a day — see `rung(from:)`.
     private enum EventName {
-        static let dailyWarning     = "dailyWarning"
+        static let sessionLimit     = "sessionLimit_"
+        static let sessionWarning   = "sessionWarn_"
         static let perAppLimit      = "perApp_"
         static let perAppWarning    = "perAppWarn_"
+
+        /// Pre-ladder names, still live on any device that has updated but not yet
+        /// launched Sky (the re-arm that replaces them happens on first
+        /// foreground). Kept until that window is safely behind us — dropping the
+        /// legacy warning here would let it fall through to the shield branch and
+        /// lock apps 30 minutes early.
+        static let legacyDailyWarning = "dailyWarning"
+        static let legacyDailyLimit   = "dailyLimitReached"
     }
 
     private static let suiteName = "group.com.shirolepranav.sky"
+
+    /// Mirrors `AppBranding.appName` — extensions cannot import the Sky module.
+    private static let appName = "Sky"
 
     private var appGroupDefaults: UserDefaults {
         UserDefaults(suiteName: Self.suiteName) ?? .standard
@@ -68,9 +89,16 @@ final class SkyDeviceActivityMonitor: DeviceActivityMonitor {
     /// arrive here (Phase 15):
     ///   • a *warning* event (30 minutes before the limit) → post a heads-up
     ///     notification only, no shield.
-    ///   • a *limit* event (budget exhausted) → apply the shield, mark the day
+    ///   • a *limit* event (session exhausted) → apply the shield, mark the day
     ///     blocked, and post the block-start notification.
     /// While a 24-hour Pause is active, both are skipped so blocking is removed.
+    ///
+    /// Every event belongs to a rung of the session ladder (see
+    /// DeviceActivityService). Rung 1 is the day's first block; rung 2 fires after
+    /// the user has verified and burned another session's worth of usage, and so
+    /// on. `lastFiredRungs` makes that monotonic, which is also what makes a
+    /// replayed threshold — the kind iOS produces when monitoring re-arms — a
+    /// no-op instead of a shield over apps the user just earned back.
     override func eventDidReachThreshold(
         _ event: DeviceActivityEvent.Name,
         activity: DeviceActivityName
@@ -90,16 +118,49 @@ final class SkyDeviceActivityMonitor: DeviceActivityMonitor {
         // Pause (Pro): suppress all blocking + notifications for 24h.
         if isPaused(ud) { return }
 
-        // Warning events carry a distinct name prefix; they never shield.
+        // An emergency unlock buys the whole day — unlike a verification, which
+        // buys one session. Re-locking someone who already told us they can't get
+        // outside, and making them retype a reason to get back in, is punishment
+        // rather than friction.
+        if ud.bool(forKey: Key.didEmergencyUnlock) { return }
+
         let name = event.rawValue
-        if name == EventName.dailyWarning || name.hasPrefix(EventName.perAppWarning) {
-            if ud.object(forKey: Key.notifWarningEnabled) as? Bool ?? true {
-                postNotification(
-                    id: NotifID.warning,
-                    title: "30 minutes left",
-                    body: "Your apps pause soon. A good time to head outside ☁️"
-                )
+
+        // A rung at or below the highest one already acted on today is a replay,
+        // not new usage. iOS re-evaluates crossed thresholds whenever monitoring
+        // re-arms with `includesPastActivity: true` (any limit or app-selection
+        // edit), and without this guard that re-shields apps the user just
+        // unlocked by walking outside.
+        //
+        // A name with no rung suffix is a pre-ladder registration that has not been
+        // replaced yet; treat it as rung 1 rather than discarding it. Failing
+        // closed (a block that may be redundant) is the right direction — failing
+        // open would leave the user unblocked all day.
+        let rung = Self.rung(from: name) ?? 1
+        let ladderKey = Self.ladderKey(forEvent: name)
+        guard rung > lastFiredRung(ladderKey, in: ud) else { return }
+
+        // Warning events carry a distinct name prefix; they never shield, and they
+        // must not advance the rung — the limit event for the same rung still has
+        // to get through.
+        if name.hasPrefix(EventName.sessionWarning)
+            || name.hasPrefix(EventName.perAppWarning)
+            || name == EventName.legacyDailyWarning {
+            guard ud.object(forKey: Key.notifWarningEnabled) as? Bool ?? true else { return }
+            // Nothing to warn about once the apps are already shut — this fires
+            // when iOS replays a crossed threshold after the block landed.
+            guard !ud.bool(forKey: Key.isCurrentlyBlocked) else {
+                auditNotification("suppressed", source: "notif.warning", in: ud)
+                return
             }
+            postNotificationOncePerDay(
+                id: NotifID.warning,
+                dayKey: Key.notifWarningDay,
+                source: "notif.warning",
+                title: "30 minutes left",
+                body: "Your apps pause soon. A good time to head outside ☁️",
+                in: ud
+            )
             return
         }
 
@@ -139,16 +200,30 @@ final class SkyDeviceActivityMonitor: DeviceActivityMonitor {
             )
         }
 
+        // The session that just ended is spent. Recording it here — after the
+        // shield lands, not before — means a crash mid-callback retries rather
+        // than silently skipping a block.
+        setLastFiredRung(rung, for: ladderKey, in: ud)
+
         ud.set(true, forKey: Key.isCurrentlyBlocked)
+        // A new session's block gets its own notification, so re-open the daily
+        // cap. The cap exists to swallow *replays*, which the rung guard above has
+        // already filtered out by the time we reach here.
+        ud.removeObject(forKey: Key.notifBlockStartDay)
+        ud.removeObject(forKey: Key.notifWarningDay)
         // Marks the block as belonging to *today*, so a late midnight reset in the
         // main app knows not to undo it (MidnightResetRecovery).
         ud.set(Self.dayStamp(for: Date()), forKey: Key.todayStateDay)
 
-        // Block-start notification is always on (PRD §4.11).
-        postNotification(
+        // Block-start notification is always on (PRD §4.11) — but still capped at
+        // one per day, so a replayed threshold can't announce the same block twice.
+        postNotificationOncePerDay(
             id: NotifID.blockStart,
+            dayKey: Key.notifBlockStartDay,
+            source: "notif.blockStart",
             title: "Time's up",
-            body: "Selected apps are blocked. Go outside to unlock them."
+            body: "Selected apps are blocked. Open \(Self.appName) to unlock them.",
+            in: ud
         )
     }
 
@@ -162,11 +237,58 @@ final class SkyDeviceActivityMonitor: DeviceActivityMonitor {
     /// the two must be kept in sync. The app-side copy carries the unit tests.
     private static func applicationToken(fromPerAppLimitEvent name: String) -> ApplicationToken? {
         guard name.hasPrefix(EventName.perAppLimit) else { return nil }
-        let encoded = String(name.dropFirst(EventName.perAppLimit.count))
-        guard let data = Data(base64Encoded: encoded),
+        guard let encoded = base64Body(ofPerAppEvent: name),
+              let data = Data(base64Encoded: encoded),
               let token = try? JSONDecoder().decode(ApplicationToken.self, from: data)
         else { return nil }
         return token
+    }
+
+    /// The base64 token portion of a per-app event name, with the `<prefix>_` and
+    /// the trailing `_<rung>` stripped. Splitting at the *last* underscore is safe
+    /// because base64 (`A–Z a–z 0–9 + / =`) contains none — which also means a body
+    /// with no underscore at all is a pre-ladder name that is already just the
+    /// token, so it is returned whole rather than rejected.
+    private static func base64Body(ofPerAppEvent name: String) -> String? {
+        guard let underscore = name.firstIndex(of: "_") else { return nil }
+        let body = name[name.index(after: underscore)...]
+        guard let separator = body.lastIndex(of: "_") else { return String(body) }
+        return String(body[body.startIndex..<separator])
+    }
+
+    // MARK: - Session ladder
+
+    /// The rung index encoded in an event name, or nil if it carries none.
+    /// Mirrors `DeviceActivityEvent.Name.rung(from:)`.
+    private static func rung(from name: String) -> Int? {
+        guard let separator = name.lastIndex(of: "_") else { return nil }
+        return Int(name[name.index(after: separator)...])
+    }
+
+    /// Which ladder an event belongs to: `""` for the combined ladder, or the
+    /// app's base64 token in per-app mode, where each app climbs its own.
+    private static func ladderKey(forEvent name: String) -> String {
+        guard name.hasPrefix(EventName.perAppLimit) || name.hasPrefix(EventName.perAppWarning)
+        else { return "" }
+        return base64Body(ofPerAppEvent: name) ?? ""
+    }
+
+    private func lastFiredRungs(in ud: UserDefaults) -> [String: Int] {
+        guard let data = ud.data(forKey: Key.lastFiredRungs),
+              let decoded = try? JSONDecoder().decode([String: Int].self, from: data)
+        else { return [:] }
+        return decoded
+    }
+
+    private func lastFiredRung(_ key: String, in ud: UserDefaults) -> Int {
+        lastFiredRungs(in: ud)[key] ?? 0
+    }
+
+    private func setLastFiredRung(_ rung: Int, for key: String, in ud: UserDefaults) {
+        var rungs = lastFiredRungs(in: ud)
+        rungs[key] = max(rungs[key] ?? 0, rung)
+        guard let data = try? JSONEncoder().encode(rungs) else { return }
+        ud.set(data, forKey: Key.lastFiredRungs)
     }
 
     /// Records the exact token set now shielded, so `ShieldService.reconcile` in
@@ -199,16 +321,51 @@ final class SkyDeviceActivityMonitor: DeviceActivityMonitor {
         return Date().timeIntervalSince(start) < 24 * 60 * 60
     }
 
-    /// Posts an immediate local notification. Bodies never contain screen-time or
-    /// app-name data (privacy commitment, Technical Spec §14).
-    private func postNotification(id: String, title: String, body: String) {
+    /// Posts a notification at most once per local day, and records both outcomes
+    /// in the audit trail.
+    ///
+    /// ⚠️ A `DeviceActivityEvent` threshold is documented as firing once per
+    /// interval, but that is not the whole story: iOS re-evaluates *already
+    /// crossed* thresholds whenever monitoring is re-armed with
+    /// `includesPastActivity: true`, which happens on any limit edit or
+    /// app-selection change (see DeviceActivityService.makeEvent). The replay
+    /// arrives here indistinguishable from real usage, and without this guard it
+    /// posts "30 minutes left" and "Time's up" at an arbitrary hour on a day the
+    /// user never opened the apps. The stable notification identifier doesn't
+    /// help — a replacement still buzzes the phone.
+    ///
+    /// The day stamps are cleared by `performMidnightResetIfNeeded`, so the first
+    /// genuine event of each new day always gets through.
+    private func postNotificationOncePerDay(
+        id: String,
+        dayKey: String,
+        source: String,
+        title: String,
+        body: String,
+        in ud: UserDefaults
+    ) {
+        let today = Self.dayStamp(for: Date())
+        guard ud.string(forKey: dayKey) != today else {
+            auditNotification("suppressed", source: source, in: ud)
+            return
+        }
+        ud.set(today, forKey: dayKey)
+
         let content = UNMutableNotificationContent()
         content.title = title
-        content.body = body
+        content.body = body           // never contains screen-time / app data (Tech Spec §14)
         content.sound = .default
         let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 1, repeats: false)
         let request = UNNotificationRequest(identifier: id, content: content, trigger: trigger)
         UNUserNotificationCenter.current().add(request, withCompletionHandler: nil)
+
+        auditNotification("notified", source: source, in: ud)
+    }
+
+    /// Notification entries share the shield audit trail so the debug menu shows
+    /// one chronological story. `appCount` is unused here and always 0.
+    private func auditNotification(_ action: String, source: String, in ud: UserDefaults) {
+        auditShield(action, source: source, appCount: 0, in: ud)
     }
 
     // MARK: - Midnight reset
@@ -279,6 +436,17 @@ final class SkyDeviceActivityMonitor: DeviceActivityMonitor {
         ud.set(false, forKey: Key.isCurrentlyBlocked)
         ud.set(false, forKey: Key.didVerifyToday)
         ud.set(false, forKey: Key.didEmergencyUnlock)
+
+        // Re-open the notification budget. A stamp holding yesterday would already
+        // fail the equality check, so this is belt-and-braces — but it keeps
+        // "everything per-day is cleared here" true by inspection.
+        ud.removeObject(forKey: Key.notifWarningDay)
+        ud.removeObject(forKey: Key.notifBlockStartDay)
+
+        // Back to the bottom of the session ladder. Without this the new day's
+        // rung 1 would be below yesterday's high-water mark and be discarded as a
+        // replay, and the user would never be blocked again.
+        ud.removeObject(forKey: Key.lastFiredRungs)
 
         // The cleared flags now describe today, not yesterday.
         ud.set(today, forKey: Key.todayStateDay)

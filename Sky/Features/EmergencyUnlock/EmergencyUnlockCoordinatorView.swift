@@ -101,6 +101,10 @@ struct EmergencyUnlockCoordinatorView: View {
 
         // 2. Update SharedDefaults so extensions and TodayView reflect the new state
         let store = SharedDefaults()
+        // Roll the day over first if a midnight passed while this flow was open —
+        // otherwise this write strands the recovery in `.stampOnly` and yesterday
+        // is never evaluated for the streak.
+        MidnightResetRecovery.rollDayOverBeforeWritingTodayState(store: store, now: now)
         store.didEmergencyUnlockToday = true
         store.isCurrentlyBlocked      = false
         // Marks this state as today's, so a late midnight reset doesn't mistake it

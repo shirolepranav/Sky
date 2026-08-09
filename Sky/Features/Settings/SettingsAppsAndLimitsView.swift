@@ -24,7 +24,7 @@ struct SettingsAppsAndLimitsView: View {
                 NavigationLink {
                     EditLimitsScreen { rearm() }
                 } label: {
-                    row(title: "Daily limit", subtitle: limitSubtitle, coral: false)
+                    row(title: "Session limit", subtitle: limitSubtitle, coral: false)
                 }
                 .accessibilityIdentifier("settings.limits.edit")
             }
@@ -59,8 +59,7 @@ struct SettingsAppsAndLimitsView: View {
             let n = store.selection?.applicationTokens.count ?? 0
             return "Per-app: \(n) app\(n == 1 ? "" : "s")"
         }
-        let hours = store.combinedLimitSeconds / 3600
-        return "\(hours) hour\(hours == 1 ? "" : "s") combined"
+        return "\(store.sessionLengthLabel) combined, per session"
     }
 
     // MARK: - Actions
