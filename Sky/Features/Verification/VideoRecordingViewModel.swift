@@ -138,7 +138,12 @@ final class VideoRecordingViewModel: NSObject, ObservableObject {
         Prompt(triggerSecond: 0,  text: "Hold steady, point your camera up."),
         Prompt(triggerSecond: 6,  text: "Now slowly look around."),
         Prompt(triggerSecond: 14, text: "Point at the sky for 5 seconds."),
-        Prompt(triggerSecond: 22, text: "Last bit — show where you are."),
+        // Deliberately does NOT ask the user to "show where you are" — that invited
+        // turning the phone around, and this segment is 8 of 30 seconds (27%) while
+        // `minOutdoorFrameRatio` demands 80% of frames classify outdoor. Nothing in
+        // the pipeline measures location from the video, so the frames are better
+        // spent on sky.
+        Prompt(triggerSecond: 22, text: "Almost done — keep the sky in view."),
     ]
 
     var currentPromptText: String { prompts[currentPromptIndex].text }
@@ -253,8 +258,8 @@ final class VideoRecordingViewModel: NSObject, ObservableObject {
     /// The coordinator owns exactly one of these as a `@StateObject` for the whole
     /// verification flow, so every retry path reuses this instance. Without a reset
     /// the second attempt inherited `elapsedSeconds == 30` and
-    /// `currentPromptIndex == 3`, which rendered the *last* prompt ("Last bit —
-    /// show where you are.") over a countdown reading 0 and an empty progress ring
+    /// `currentPromptIndex == 3`, which rendered the *last* prompt ("Almost done —
+    /// keep the sky in view.") over a countdown reading 0 and an empty progress ring
     /// — and the first tick, already past `recordingDuration`, immediately stopped
     /// the recording. Call this from every path that sends the user back to
     /// S-VER-01 (see `VerificationCoordinatorView.restartFlow`).

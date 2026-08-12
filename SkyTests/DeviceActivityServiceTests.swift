@@ -325,6 +325,51 @@ final class DeviceActivityServiceTests: XCTestCase {
         XCTAssertTrue(relaunched.isMonitoring, "state must be recovered from the center")
     }
 
+    /// An OS major-version change must change the fingerprint, so monitoring
+    /// re-registers once after an iOS upgrade.
+    ///
+    /// Every other fingerprint input is data *we* wrote, and none of it moves when
+    /// iOS silently reissues `ApplicationToken`s. Without the OS component the
+    /// no-op guard would pin a dead registration forever: stale tokens never fire a
+    /// threshold, so the shield would simply never be applied again.
+    func testOSMajorVersionChangeChangesTheFingerprint() {
+        let selectionData = try? JSONEncoder().encode(FamilyActivitySelection())
+
+        let onIOS18 = DeviceActivityService.configFingerprint(
+            selectionData: selectionData,
+            limitMode: "combined",
+            combinedLimitSeconds: 3600,
+            perAppLimitsData: nil,
+            osMajorVersion: 18
+        )
+        let onIOS19 = DeviceActivityService.configFingerprint(
+            selectionData: selectionData,
+            limitMode: "combined",
+            combinedLimitSeconds: 3600,
+            perAppLimitsData: nil,
+            osMajorVersion: 19
+        )
+
+        XCTAssertNotEqual(onIOS18, onIOS19, "an OS upgrade must force a fresh registration")
+    }
+
+    /// …but the same OS must stay stable, or every foreground would re-arm and
+    /// reset the usage counter.
+    func testSameOSMajorVersionKeepsTheFingerprintStable() {
+        let selectionData = try? JSONEncoder().encode(FamilyActivitySelection())
+
+        let first = DeviceActivityService.configFingerprint(
+            selectionData: selectionData, limitMode: "combined",
+            combinedLimitSeconds: 3600, perAppLimitsData: nil, osMajorVersion: 18
+        )
+        let second = DeviceActivityService.configFingerprint(
+            selectionData: selectionData, limitMode: "combined",
+            combinedLimitSeconds: 3600, perAppLimitsData: nil, osMajorVersion: 18
+        )
+
+        XCTAssertEqual(first, second)
+    }
+
     /// Editing the limit must still re-arm, or the new budget never takes effect.
     func testChangedLimitReArms() throws {
         let (store, suite) = makeIsolatedStore()

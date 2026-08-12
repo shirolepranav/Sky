@@ -18,8 +18,11 @@ final class AppSelectionViewModel: ObservableObject {
     /// Bound to `FamilyActivityPicker` (S-CFG-02); mutated by Apple's picker.
     @Published var selection: FamilyActivitySelection
 
-    /// True when stored selection Data failed to decode (stale tokens after an
-    /// iOS update) — drives the "needs redoing" warning on S-CFG-01.
+    /// True when the stored selection can no longer be trusted — either the Data
+    /// failed to decode, or iOS has had a major version change since the apps were
+    /// picked (the moment `ApplicationToken`s are most likely to have been silently
+    /// reissued). Drives the "needs redoing" warning on S-CFG-01.
+    /// `persistSelection` clears it, and re-stamps the OS version via the setter.
     @Published private(set) var needsRedo: Bool
 
     /// Set when a free user picks more than 2 apps. View shows S-PAY-05 gate.

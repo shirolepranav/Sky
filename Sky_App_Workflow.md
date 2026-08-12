@@ -1467,7 +1467,9 @@ Same structure as `S-SHIELD-02`. Target: `S-EMG-01`.
 - 0–6s: **"Hold steady, point your camera up."**
 - 6–14s: **"Now slowly look around."**
 - 14–22s: **"Point at the sky for 5 seconds."**
-- 22–30s: **"Last bit — show where you are."**
+- 22–30s: **"Almost done — keep the sky in view."**
+  (was *"Last bit — show where you are."* — that invited turning the phone around,
+  and this segment is 27% of the recording against an 80% outdoor-frame threshold)
 - 30s+ (briefly): **"Processing…"** (then S-VER-05 takes over)
 
 **States.**

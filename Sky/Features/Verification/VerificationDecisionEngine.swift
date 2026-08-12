@@ -6,6 +6,15 @@
 //
 // Checks run in priority order — the most definitive signal (GPS spoofing) first,
 // the most context-dependent (sky pixels) last.
+//
+// GPS *validity* is established before the daylight check, and the order matters:
+// `sunriseSunsetCheckPassed` is false both when it is genuinely dark and when no
+// location fix ever arrived (SensorRecorder.sunriseSunsetCheck can't run without a
+// coordinate). Since `bestGPSAccuracy()` returns .infinity for an empty sample set,
+// testing accuracy first routes the no-fix case to .poorGPSSignal — otherwise a user
+// whose GPS never locked was told "It's dark out." at noon. After this ordering,
+// a false `sunriseSunsetCheckPassed` means only "genuinely dark" (polar night
+// included, where that message is correct).
 
 import Foundation
 
@@ -23,15 +32,16 @@ struct VerificationDecisionEngine {
             return .failure(.gpsSpoofingDetected)
         }
 
-        // 2. Outside daylight window — sunrise/sunset check from SolarCalculator.
-        //    Night Mode (opt-in) waives this one check only.
-        if !sensor.sunriseSunsetCheckPassed && !nightModeEnabled {
-            return .failure(.outsideDaylightWindow)
-        }
-
-        // 3. GPS accuracy too poor to trust location.
+        // 2. GPS accuracy too poor to trust location — also catches "no fix at all",
+        //    which surfaces as .infinity. Must precede the daylight check (see header).
         if sensor.gpsAccuracyAtBest > VerificationThresholds.maxAcceptableGPSError {
             return .failure(.poorGPSSignal)
+        }
+
+        // 3. Outside the verification daylight window — civil-twilight check from
+        //    SolarCalculator. Night Mode (opt-in) waives this one check only.
+        if !sensor.sunriseSunsetCheckPassed && !nightModeEnabled {
+            return .failure(.outsideDaylightWindow)
         }
 
         // 4. Not enough movement — speed OR altitude change must meet threshold

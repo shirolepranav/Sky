@@ -112,6 +112,13 @@ struct SkyApp: App {
             .onChange(of: scenePhase) { _, phase in
                 // Catch a permission toggled in Settings (S-PERM-02 recovery).
                 if phase == .active {
+                    // Adopt the current OS version for installs that saved a selection
+                    // before it was stamped, so they aren't told to re-pick apps having
+                    // changed nothing. Must run before anything reads
+                    // `selectionNeedsRedo`. Note this can only protect from here on: for
+                    // a user who updates iOS and Sky together there is no record of which
+                    // OS they originally picked under, so that one change goes unseen.
+                    SharedDefaults().backfillSelectionOSVersionIfNeeded()
                     coordinator.familyControls.refreshStatus()
                     coordinator.recomputeRoute()
                     // Run the midnight reset ourselves if the monitor extension's

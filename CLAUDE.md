@@ -77,11 +77,18 @@ fallback below. Run the unit tests the same way:
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild test -project Sky.xcodeproj -scheme Sky -destination 'platform=iOS Simulator,name=iPhone 17'
 ```
 
-On an **iOS 26.2** destination the suite runs **242 tests, 0 skipped, 8 failures**.
-The 8 are long-standing and live in `SunriseSunsetTests` (solar-position
-precision), `OnboardingViewModelTests`, and `SetupRoutingTests` — **not**
-regressions. Treat that as the baseline; a change is clean if it adds no failures
-beyond those.
+The suite runs **266 tests, 2 failures** (plus 8 StoreKit tests skipped on runtimes
+where StoreKit Testing is broken — see gap 1 below). The 2 are long-standing and live
+in `OnboardingViewModelTests` and `SetupRoutingTests` — **not** regressions. Treat
+that as the baseline; a change is clean if it adds no failures beyond those.
+
+The old baseline said "242 tests, 8 failures", 6 of which were assertion failures
+inside a single `SunriseSunsetTests` case. Those were **bad reference data, not an
+algorithm bug**: the Helsinki vector implied a 4h47m winter-solstice day when the
+true length at 60.17°N is 5h55m. The vectors were regenerated from an independent
+source and the suite now passes. `SolarCalculator` does still drift ~4.5 min at 60°N
+(vs ~1 min at the equator), which is why `toleranceSeconds` is 420 rather than 120 —
+see the rationale comment on that constant before tightening it.
 
 Several tests read and write the real `SharedDefaults` / `UserDefaults.standard`
 and don't reset it, so **stale simulator state can cause spurious failures**
@@ -196,9 +203,34 @@ kind. Exact strings for built screens live in `Sky_App_Workflow.md §3.3`.
   ExportOptions.plist (or Xcode's Organizer UI) to get a real distribution build.
 - Screen Time / Shield APIs are historically unstable across iOS versions — test
   on iOS 17.0, 17.6, latest 18.x.
-- Verification thresholds (`VerificationThresholds.swift`, when built) are the
-  single tunable source — measured on real devices in 5+ environments. Never
-  duplicate threshold values elsewhere.
+- **iOS silently reissues `ApplicationToken`s.** The persisted
+  `FamilyActivitySelection` is *our own* JSON, so iOS never touches it — it keeps
+  decoding cleanly while the tokens inside stop matching any app. Stale tokens fire
+  no threshold, so the shield is never applied and Sky silently stops working while
+  the UI still says "monitoring". There is no reliable direct detection, so
+  `SharedDefaults.selectionNeedsRedo` uses an **OS major-version change** as a proxy
+  and `configFingerprint` mixes the OS version in so monitoring re-arms once per
+  upgrade. Deliberate tradeoff: one false "Re-select apps" prompt per annual iOS
+  release, versus a silent permanent failure with no user-facing recovery.
+  ⚠️ `ShieldService.unlockApps` must keep assigning `nil` to
+  `managed.shield.applications` rather than subtracting a token set — the nil clears
+  orphaned old tokens too, and is the only reason a reissue can't strand a user
+  permanently shielded.
+- Verification thresholds (`VerificationThresholds.swift`) are the single tunable
+  source. Never duplicate threshold values elsewhere. ⚠️ They are **not yet
+  measured** — the file's own header says "re-measure against real-world recordings
+  in 5+ environments before launch (Roadmap Phase 10)", so treat the current values
+  as placeholders. (This line previously claimed they *had* been measured; the file
+  is the authority.)
+- **Night verification does not work**, and Night Mode is misleading about it.
+  `SkyPixelCounter` gates sky detection on brightness (`v >= 0.35` blue, `v >= 0.75`
+  overcast), so it returns ~0 in darkness. Night Mode waives only the daylight check,
+  so a user who enables it is sent outside at night and then fails on "Show some
+  sky." A DEBUG-only spike under
+  `Sky/Features/Verification/VisionAnalysis/Debug/` measures candidate
+  daylight-independent signals (depth, texture energy); a Core ML night-sky
+  classifier is the intended primary fix because it is the only candidate that
+  covers every iOS 17 device.
 
 ## Project skills
 

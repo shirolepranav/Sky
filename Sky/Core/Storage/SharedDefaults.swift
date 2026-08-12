@@ -71,6 +71,9 @@ struct SharedDefaults {
         static let appearanceMode = "appearance_mode"
         // Re-arm guard for DeviceActivity monitoring (TIME_REMAINING_PLAN.md §2)
         static let monitoringConfigFingerprint = "monitoring_config_fingerprint"
+        // iOS major version in force when the selection was last chosen. Detects the
+        // silently-reissued-ApplicationToken case — see `selectionNeedsRedo`.
+        static let selectionOSMajorVersion = "selection_os_major_version"
     }
 
     // MARK: Configuration (written by main app, read by extensions)
@@ -361,7 +364,31 @@ struct SharedDefaults {
         }
         nonmutating set {
             familyActivitySelection = newValue.flatMap { try? JSONEncoder().encode($0) }
+            // Stamped so a later OS major change can be detected — see `selectionNeedsRedo`.
+            selectionOSMajorVersion = newValue == nil ? 0 : Self.currentOSMajorVersion
         }
+    }
+
+    /// The iOS major version in force when `selection` was last written.
+    /// `0` means "never stamped" — either no selection, or an install that predates
+    /// this key (see `backfillSelectionOSVersionIfNeeded`).
+    var selectionOSMajorVersion: Int {
+        get { defaults.integer(forKey: Key.selectionOSMajorVersion) }
+        nonmutating set { defaults.set(newValue, forKey: Key.selectionOSMajorVersion) }
+    }
+
+    static var currentOSMajorVersion: Int {
+        ProcessInfo.processInfo.operatingSystemVersion.majorVersion
+    }
+
+    /// Adopts the current OS version for installs that stored a selection before this
+    /// key existed. Without it every existing user would be told to re-pick apps on
+    /// first launch after the update, having changed nothing. Call once at startup.
+    func backfillSelectionOSVersionIfNeeded(
+        currentOSMajor: Int = SharedDefaults.currentOSMajorVersion
+    ) {
+        guard familyActivitySelection != nil, selectionOSMajorVersion == 0 else { return }
+        selectionOSMajorVersion = currentOSMajor
     }
 
     /// True when a non-empty selection is persisted *and* decodes cleanly.
@@ -372,8 +399,36 @@ struct SharedDefaults {
             || !selection.webDomainTokens.isEmpty
     }
 
-    /// True when Data exists but failed to decode (stale tokens after an iOS update).
+    /// True when the persisted selection can no longer be trusted to refer to the
+    /// user's actual apps, for either of two reasons:
+    ///
+    /// 1. The archive exists but no longer decodes.
+    /// 2. The archive decodes fine, but iOS has had a **major version change** since
+    ///    the user picked their apps.
+    ///
+    /// Case 2 is the one that matters and the one that is easy to miss. iOS reissues
+    /// `ApplicationToken`s for the same apps from time to time, and the old tokens are
+    /// left in place rather than invalidated. Because the archive is *our own* JSON,
+    /// iOS never touches it — so it keeps decoding cleanly forever while the tokens
+    /// inside quietly stop matching anything. Nothing else in the app can notice:
+    /// `DeviceActivityService.startMonitoring` no-ops while the config fingerprint is
+    /// unchanged, and stale tokens never fire a threshold, so the shield is simply
+    /// never applied. The user sees "monitoring" and gets no blocking at all.
+    ///
+    /// There is no reliable way to detect reissuance directly, so this uses the OS
+    /// major version as a proxy for "the most likely moment it happened". The cost is
+    /// a false prompt after every annual iOS update; the alternative is a silent,
+    /// permanent failure of the app's core function with no user-facing recovery.
     var selectionNeedsRedo: Bool {
-        familyActivitySelection != nil && selection == nil
+        needsRedo(currentOSMajor: Self.currentOSMajorVersion)
+    }
+
+    /// Testable core of `selectionNeedsRedo`.
+    func needsRedo(currentOSMajor: Int) -> Bool {
+        guard familyActivitySelection != nil else { return false }
+        if selection == nil { return true }
+        let stamped = selectionOSMajorVersion
+        guard stamped != 0 else { return false }  // never stamped — don't cry wolf
+        return stamped != currentOSMajor
     }
 }

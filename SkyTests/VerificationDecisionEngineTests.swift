@@ -65,6 +65,39 @@ final class VerificationDecisionEngineTests: XCTestCase {
                        .failure(.poorGPSSignal))
     }
 
+    /// When no location fix ever arrives, `SensorRecorder` reports
+    /// `gpsAccuracyAtBest == .infinity` AND `sunriseSunsetCheckPassed == false` —
+    /// the latter only because the daylight check needs a coordinate it never got.
+    /// The engine must attribute this to GPS, not to darkness; before the check
+    /// reorder this told a user at noon "It's dark out."
+    func testNoGPSFixReportsPoorSignalNotDarkness() {
+        XCTAssertEqual(
+            outcome(sensor: makeSensor(gpsAccuracyAtBest: .infinity,
+                                       sunriseSunsetCheckPassed: false),
+                    frame: makeFrame()),
+            .failure(.poorGPSSignal)
+        )
+    }
+
+    /// The same no-fix reading with Night Mode on must still blame GPS — night mode
+    /// waives the daylight check, so nothing else would catch a missing fix.
+    func testNoGPSFixReportsPoorSignalUnderNightMode() {
+        XCTAssertEqual(
+            outcome(sensor: makeSensor(gpsAccuracyAtBest: .infinity,
+                                       sunriseSunsetCheckPassed: false),
+                    frame: makeFrame(),
+                    nightModeEnabled: true),
+            .failure(.poorGPSSignal)
+        )
+    }
+
+    /// `SensorReading.unavailable` is the sentinel used on Simulator and in mocks.
+    /// It carries infinite accuracy, so it must read as a GPS failure.
+    func testUnavailableSentinelReportsPoorGPSSignal() {
+        XCTAssertEqual(outcome(sensor: .unavailable, frame: makeFrame()),
+                       .failure(.poorGPSSignal))
+    }
+
     func testNotEnoughMovementFails() {
         // Both speed (0.1) and altitude (0.3) below their respective thresholds
         XCTAssertEqual(

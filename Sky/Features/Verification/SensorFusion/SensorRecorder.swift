@@ -121,13 +121,19 @@ final class SensorRecorder: NSObject {
     // MARK: - Private: aggregation
 
     private func sunriseSunsetCheck(lastLocation: CLLocation?) -> Bool {
+        // No fix → false, which is indistinguishable from "genuinely dark" here. That is
+        // safe only because VerificationDecisionEngine tests GPS accuracy *before* the
+        // daylight check, and `bestGPSAccuracy()` reports .infinity for an empty sample
+        // set — so a missing fix is attributed to GPS, not to darkness. Don't reorder
+        // those checks without revisiting this.
         guard let loc = lastLocation else { return false }
         let calc = SolarCalculator(
             coordinate: loc.coordinate,
             date: startTime,
             timeZone: .current
         )
-        return calc.isCurrentlyDaylight()
+        // Civil twilight, not true sunrise/sunset — see SolarCalculator.civilTwilightZenith.
+        return calc.isWithinVerificationWindow()
     }
 
     private func buildReading(sunriseSunsetCheckPassed: Bool) -> SensorReading {

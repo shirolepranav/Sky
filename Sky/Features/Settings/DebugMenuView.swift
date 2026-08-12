@@ -86,6 +86,7 @@ struct DebugMenuView: View {
 
             Section("Inspect") {
                 NavigationLink("Shield history") { ShieldHistoryView() }
+                NavigationLink("Signal probe") { SignalProbeView() }
                 Button("View temp video files") { countTempVideos() }
                 Button("Dump SharedDefaults") { dumpDefaults() }
             }

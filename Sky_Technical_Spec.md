@@ -338,7 +338,7 @@ SharedDefaults().didVerifyToday = true
 - 0s — "Hold steady, point your camera up"
 - 6s — "Now slowly look around"
 - 14s — "Point at the sky for 5 seconds"
-- 22s — "Last bit — show where you are"
+- 22s — "Almost done — keep the sky in view"
 - 30s — Recording ends, processing begins
 
 While recording, Sky concurrently samples:

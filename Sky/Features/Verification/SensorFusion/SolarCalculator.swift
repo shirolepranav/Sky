@@ -1,6 +1,8 @@
 // SolarCalculator.swift
 // Pure-Swift NOAA ESRL simplified solar position algorithm.
 // Accurate to ±2 minutes at latitudes 0–65°; handles polar night / midnight-sun edge cases.
+// Queryable at any zenith angle — `officialZenith` for true sunrise/sunset, and
+// `civilTwilightZenith` for the wider window verification is actually allowed in.
 // No third-party dependencies. Tech Spec §8, Roadmap Phase 8.
 // Reference: NOAA Solar Equations (https://gml.noaa.gov/grad/solcalc/solareqns.PDF)
 
@@ -13,31 +15,62 @@ struct SolarCalculator {
     let date: Date
     let timeZone: TimeZone
 
+    // MARK: - Zenith conventions
+
+    /// Zenith angle for true sunrise/sunset: 90° plus the standard 0.833° allowance
+    /// for atmospheric refraction and the sun's semi-diameter.
+    static let officialZenith: Double = 90.833
+
+    /// Zenith angle for civil twilight — the sun 6° below the horizon. There is still
+    /// ample light to see by, and for the camera to work, which is why the *verification*
+    /// window uses this rather than `officialZenith`: at high latitudes in winter the
+    /// true-sunset window is punishingly narrow (Helsinki on 21 Dec gets under six hours
+    /// of daylight, entirely inside work and school hours).
+    static let civilTwilightZenith: Double = 96.0
+
     // MARK: - Public API
 
     /// Sunrise time on `date` at `coordinate`, or `nil` for polar night / midnight sun.
-    func sunrise() -> Date? { sunriseSunsetDates()?.sunrise }
+    func sunrise() -> Date? { sunriseSunsetDates(zenith: Self.officialZenith)?.sunrise }
 
     /// Sunset time on `date` at `coordinate`, or `nil` for polar night / midnight sun.
-    func sunset() -> Date? { sunriseSunsetDates()?.sunset }
+    func sunset() -> Date? { sunriseSunsetDates(zenith: Self.officialZenith)?.sunset }
 
-    /// `true` when `date` falls between sunrise and sunset.
+    /// `true` when `date` falls between true sunrise and true sunset.
     /// Polar night → false. Midnight sun → true. No GPS fix → false.
-    func isCurrentlyDaylight() -> Bool {
-        guard let (rise, set) = sunriseSunsetDates() else {
-            // sunriseSunsetDates() returns nil only for polar extremes.
-            // Distinguish via the hour-angle sign we cache in sunriseSunsetDates().
-            return isMidnightSun()
-        }
-        return date >= rise && date <= set
-    }
+    func isCurrentlyDaylight() -> Bool { isWithin(zenith: Self.officialZenith) }
+
+    /// `true` when `date` falls inside the window verification is allowed in — civil
+    /// twilight, which is wider than `isCurrentlyDaylight()` at every latitude and
+    /// markedly wider at high ones. This is the gate `SensorRecorder` applies;
+    /// `isCurrentlyDaylight()` keeps true sunrise/sunset semantics for anything else.
+    func isWithinVerificationWindow() -> Bool { isWithin(zenith: Self.civilTwilightZenith) }
 
     // MARK: - Internal (exposed for unit tests)
 
-    /// Returns (sunriseUTC, sunsetUTC) on the date in UTC minutes-from-midnight, or nil.
-    func utcMinutes() -> (sunrise: Double, sunset: Double)? {
-        let jd = julianDate()
-        let t  = julianCentury(jd: jd)
+    /// Returns (sunriseUTC, sunsetUTC) on the date in UTC minutes-from-midnight, or nil
+    /// when the sun never crosses `zenith` on this date (polar night / midnight sun).
+    func utcMinutes(zenith: Double = SolarCalculator.officialZenith) -> (sunrise: Double, sunset: Double)? {
+        let geo = solarGeometry()
+        let cosHA = hourAngleCosine(zenith: zenith, geometry: geo)
+        guard abs(cosHA) <= 1.0 else { return nil }
+
+        let ha = deg(acos(cosHA))
+        let noon = 720.0 - 4.0 * coordinate.longitude - geo.equationOfTime
+        return (sunrise: noon - 4.0 * ha, sunset: noon + 4.0 * ha)
+    }
+
+    // MARK: - Private helpers
+
+    /// Date-dependent solar quantities, independent of zenith. Computed once and shared
+    /// by every query so the geometry block isn't duplicated per convention.
+    private struct SolarGeometry {
+        let declination: Double
+        let equationOfTime: Double
+    }
+
+    private func solarGeometry() -> SolarGeometry {
+        let t = julianCentury(jd: julianDate())
 
         let l0 = geomMeanLongSun(t: t)
         let m  = geomMeanAnomalySun(t: t)
@@ -47,45 +80,38 @@ struct SolarCalculator {
         let lambda = l0 + c - 0.00569 - 0.00478 * sin(rad(omega))
         let e0 = meanObliquityOfEcliptic(t: t)
         let eps = e0 + 0.00256 * cos(rad(omega))
-        let decl = sunDeclination(eps: eps, lambda: lambda)
-        let eqT = equationOfTime(t: t, eps: eps, l0: l0, m: m, e: e)
 
-        let lat = coordinate.latitude
-        let lon = coordinate.longitude
-
-        let cosHA = cos(rad(90.833)) / (cos(rad(lat)) * cos(rad(decl)))
-                    - tan(rad(lat)) * tan(rad(decl))
-        guard abs(cosHA) <= 1.0 else { return nil }
-
-        let ha = deg(acos(cosHA))
-        let noon = 720.0 - 4.0 * lon - eqT
-        return (sunrise: noon - 4.0 * ha, sunset: noon + 4.0 * ha)
+        return SolarGeometry(
+            declination: sunDeclination(eps: eps, lambda: lambda),
+            equationOfTime: equationOfTime(t: t, eps: eps, l0: l0, m: m, e: e)
+        )
     }
 
-    // MARK: - Private helpers
+    /// Cosine of the hour angle at which the sun reaches `zenith`.
+    /// `< -1` → the sun never descends that far (midnight sun / all-night twilight).
+    /// `>  1` → it never climbs that high (polar night).
+    private func hourAngleCosine(zenith: Double, geometry: SolarGeometry) -> Double {
+        let lat  = coordinate.latitude
+        let decl = geometry.declination
+        return cos(rad(zenith)) / (cos(rad(lat)) * cos(rad(decl)))
+               - tan(rad(lat)) * tan(rad(decl))
+    }
 
-    private func sunriseSunsetDates() -> (sunrise: Date, sunset: Date)? {
-        guard let (riseMin, setMin) = utcMinutes() else { return nil }
+    private func sunriseSunsetDates(zenith: Double) -> (sunrise: Date, sunset: Date)? {
+        guard let (riseMin, setMin) = utcMinutes(zenith: zenith) else { return nil }
         guard let rise = utcDate(minutes: riseMin),
               let set  = utcDate(minutes: setMin) else { return nil }
         return (rise, set)
     }
 
-    /// Returns true only when the hour-angle cosine is < -1 (midnight sun at high latitude).
-    private func isMidnightSun() -> Bool {
-        let jd = julianDate()
-        let t  = julianCentury(jd: jd)
-        let l0 = geomMeanLongSun(t: t)
-        let m  = geomMeanAnomalySun(t: t)
-        let c  = sunEquationOfCenter(t: t, m: m)
-        let omega = 125.04 - 1934.136 * t
-        let lambda = l0 + c - 0.00569 - 0.00478 * sin(rad(omega))
-        let e0 = meanObliquityOfEcliptic(t: t)
-        let eps = e0 + 0.00256 * cos(rad(omega))
-        let decl = sunDeclination(eps: eps, lambda: lambda)
-        let cosHA = cos(rad(90.833)) / (cos(rad(coordinate.latitude)) * cos(rad(decl)))
-                    - tan(rad(coordinate.latitude)) * tan(rad(decl))
-        return cosHA < -1.0
+    /// Shared implementation behind both window queries.
+    private func isWithin(zenith: Double) -> Bool {
+        guard let (rise, set) = sunriseSunsetDates(zenith: zenith) else {
+            // nil only at polar extremes. cosHA < -1 means the sun stays above this
+            // zenith for the whole day → we are inside the window, not outside it.
+            return hourAngleCosine(zenith: zenith, geometry: solarGeometry()) < -1.0
+        }
+        return date >= rise && date <= set
     }
 
     // MARK: Julian date

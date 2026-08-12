@@ -335,14 +335,21 @@ final class DeviceActivityService: ObservableObject {
         selectionData: Data?,
         limitMode: String,
         combinedLimitSeconds: Int,
-        perAppLimitsData: Data?
+        perAppLimitsData: Data?,
+        osMajorVersion: Int = SharedDefaults.currentOSMajorVersion
     ) -> String {
         // The version prefix is bumped whenever the *shape* of the registered
         // events changes, not just their values. "v2" = the session ladder; it
         // forces every installed device to re-register once on the first
         // foreground after the update, replacing the old single-event schedule.
+        //
+        // `osMajorVersion` is mixed in so an OS upgrade always forces one fresh
+        // registration. Every other input here is data *we* wrote, so none of them
+        // move when iOS silently reissues ApplicationTokens — without this the
+        // no-op guard below would pin a dead configuration forever, and monitoring
+        // would never re-arm. See `SharedDefaults.selectionNeedsRedo`.
         var hasher = SHA256()
-        hasher.update(data: Data("v2|\(selectionData?.count ?? -1)|".utf8))
+        hasher.update(data: Data("v2|os\(osMajorVersion)|\(selectionData?.count ?? -1)|".utf8))
         hasher.update(data: selectionData ?? Data())
         hasher.update(data: Data("|\(limitMode)|\(combinedLimitSeconds)|\(perAppLimitsData?.count ?? -1)|".utf8))
         hasher.update(data: perAppLimitsData ?? Data())

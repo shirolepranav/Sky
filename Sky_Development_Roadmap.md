@@ -253,7 +253,7 @@ Do not start Phase N+1 until all four sections of Phase N are green.
     - 0s: "Hold steady, point your camera up"
     - 6s: "Now slowly look around"
     - 14s: "Point at the sky for 5 seconds"
-    - 22s: "Last bit — show where you are"
+    - 22s: "Almost done — keep the sky in view"
     - 30s: "Processing…"
   - Cancel button (returns to previous screen, deletes any partial recording)
 - Save the recorded video to `FileManager.default.temporaryDirectory` as `verification_\(UUID()).mov`

@@ -161,8 +161,8 @@ final class VideoRecordingViewModelTests: XCTestCase {
     // MARK: Retry / reset
 
     /// The reported bug: tapping "Try again" after a failed verification showed the
-    /// *last* prompt ("Last bit — show where you are.") over a countdown reading 0
-    /// and an empty ring, instead of restarting the recording.
+    /// *last* prompt ("Almost done — keep the sky in view.") over a countdown reading
+    /// 0 and an empty ring, instead of restarting the recording.
     ///
     /// The coordinator owns one view model for the whole flow, so the second
     /// attempt inherited `elapsedSeconds == 30` and `currentPromptIndex == 3` from
@@ -176,7 +176,7 @@ final class VideoRecordingViewModelTests: XCTestCase {
         // Precondition: this is the state a completed attempt leaves behind.
         XCTAssertEqual(vm.elapsedSeconds, 30)
         XCTAssertEqual(vm.currentPromptIndex, 3)
-        XCTAssertEqual(vm.currentPromptText, "Last bit — show where you are.")
+        XCTAssertEqual(vm.currentPromptText, "Almost done — keep the sky in view.")
 
         vm.reset()
 
