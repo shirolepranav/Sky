@@ -282,6 +282,14 @@ A cloud character, pronoun "they". One mascot, five states. Transition between s
 | Rainbow | Streak milestone reached |
 | Rainy | Emergency unlock used |
 
+**Sticker style (Sky Pop, default).** Nimbus is drawn as an outlined sticker: an
+ink silhouette (stroke 10 in the 200×156 viewBox) under the fill, plus the same
+silhouette offset (5, 6) as a hard ink shadow. Eyes are ~30% bigger, eye and
+mouth strokes ~40% bolder, cheeks twice as strong. The face and outline use
+fixed ink (`inkOnAccent` / `outlineOnAccent`) so the white cloud reads in dark
+mode too. `NimbusView(style: .classic)` keeps the original soft cloud. All five
+states and the Reduce Motion behaviour are identical in both styles.
+
 ---
 
 ## 9. Accessibility

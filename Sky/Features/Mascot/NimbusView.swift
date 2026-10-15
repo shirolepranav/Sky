@@ -8,6 +8,9 @@
 // Together with NimbusRendering.swift this is the single replaceable mascot
 // component — swapping it (e.g. for a Lottie file in v1.1+) only touches
 // these two files.
+//
+// Style: `.sticker` (default, Sky Pop) draws the ink-outlined sticker with an
+// offset hard shadow; `.classic` is the original soft pastel cloud.
 
 import SwiftUI
 
@@ -55,6 +58,12 @@ enum NimbusExpression: Sendable {
     case happy, neutral, beaming, sad
 }
 
+/// How Nimbus is drawn. Doesn't change the state or its meaning.
+enum NimbusStyle: Sendable {
+    case sticker // Sky Pop: ink outline + offset ink shadow, bigger eyes, coral cheeks
+    case classic // original soft cloud with a tinted shadow
+}
+
 // MARK: - View
 
 struct NimbusView: View {
@@ -64,6 +73,7 @@ struct NimbusView: View {
     /// Renders the canonical frozen pose with no live timeline — for
     /// ImageRenderer exports (NimbusPNGExporter) and fixed-pose previews.
     var isStatic: Bool = false
+    var style: NimbusStyle = .sticker
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var fromState: MascotState? = nil
@@ -84,7 +94,8 @@ struct NimbusView: View {
                 progress: morphProgress,
                 time: time,
                 crossfadeOnly: reduceMotion,
-                expressionOverride: expressionOverride
+                expressionOverride: expressionOverride,
+                sticker: style == .sticker
             )
             .frame(width: size, height: size * 0.78)
             .offset(y: NimbusIdle.bobOffset(at: time))
@@ -123,6 +134,7 @@ private struct NimbusCanvas: View, Animatable {
     var time: TimeInterval?
     var crossfadeOnly: Bool
     var expressionOverride: NimbusExpression?
+    var sticker: Bool
 
     var animatableData: Double {
         get { progress }
@@ -140,7 +152,8 @@ private struct NimbusCanvas: View, Animatable {
                 t: progress,
                 time: time,
                 crossfadeOnly: crossfadeOnly,
-                expressionOverride: expressionOverride
+                expressionOverride: expressionOverride,
+                sticker: sticker
             )
         }
     }
@@ -173,6 +186,28 @@ struct NimbusMini: View {
     .padding(24)
     .frame(maxWidth: .infinity, maxHeight: .infinity)
     .background(SkyColor.surface)
+}
+
+#Preview("Nimbus — sticker vs classic, light + dark") {
+    VStack(spacing: SkySpacing.s6) {
+        ForEach([ColorScheme.light, .dark], id: \.self) { scheme in
+            HStack(spacing: SkySpacing.s3) {
+                ForEach(MascotState.allCases, id: \.self) { state in
+                    VStack(spacing: SkySpacing.s2) {
+                        NimbusView(state: state, size: 64)
+                        NimbusView(state: state, size: 64, style: .classic)
+                    }
+                }
+            }
+            .padding(SkySpacing.s4)
+            .background(SkyColor.surface)
+            .environment(\.colorScheme, scheme)
+        }
+        // The Sky Pop hero: big sticker on the popSky ground.
+        NimbusView(state: .fluffyWhite, size: 230)
+            .padding(SkySpacing.s6)
+            .background(SkyColor.popSky)
+    }
 }
 
 #Preview("Nimbus — morph cycle") {
