@@ -1,13 +1,15 @@
 // TodayView.swift
 // S-TODAY-01 + S-TODAY-02 — The primary home screen. Shows Nimbus, today's
-// status banner, a usage ring, and context-sensitive actions.
+// status, the lock time, and context-sensitive actions.
 // Sky_App_Workflow.md §Group C S-TODAY-01/S-TODAY-02; Roadmap Phase 11.
 //
-// Note: DeviceActivity only delivers usage data to the monitor extension via
-// callbacks; the main app cannot read live screen-time in real time. The progress
-// ring is therefore a state indicator (blocked/verified/idle) rather than a precise
-// usage percentage. Phase 12+ can refine this by having the extension write
-// incremental usage to SharedDefaults.
+// Sky Pop layout (DESIGN_SYSTEM §1; Sky Pop canvas board "TodayPop"): a
+// full-bleed Pop ground on top with the sticker Nimbus and a speech bubble —
+// the screen's one loud moment — over a cream bottom sheet holding the status,
+// the walk requirements, the lock-time chip and the actions.
+//
+// The old usage ring is gone: since the daily-lock pivot (DAILY_LOCK_PLAN.md)
+// there is no usage to count, so a tappable lock-time chip opens the editor.
 
 import SwiftUI
 
@@ -68,19 +70,27 @@ struct TodayView: View {
         return .unblocked
     }
 
-    private var ringProgress: Double {
+    /// The hero ground — the screen's one loud moment (DESIGN_SYSTEM §1.4).
+    /// One colour, one meaning: sun = verified, grey = paused / emergency,
+    /// sky otherwise. The Pop grounds stay bright in dark mode.
+    private var heroGround: Color {
         switch appState {
-        case .blocked, .emergencyUnlocked: return 1.0
-        case .verifiedToday:               return 1.0
-        default:                           return 0.0
+        case .verifiedToday:               return SkyColor.popSun
+        case .paused, .emergencyUnlocked:  return SkyColor.cloudGrey
+        default:                           return SkyColor.popSky
         }
     }
 
-    private var ringAccent: Color {
+    /// Nimbus's speech bubble — decorative, kind, never guilt-tripping.
+    private var bubbleText: String {
         switch appState {
-        case .blocked, .emergencyUnlocked, .entitlementMissing: return SkyColor.coralStreak
-        case .verifiedToday:               return SkyColor.sunYellow
-        default:                           return SkyColor.mossGreen
+        case .blocked:            return "come out & play!"
+        case .unblocked:          return "see you at \(store.lockTimeLabel)!"
+        case .verifiedToday:      return "that's the stuff!"
+        case .emergencyUnlocked:  return "tomorrow's fresh!"
+        case .paused:             return "taking a breather"
+        case .noApps, .noLimit:   return "let's set up!"
+        case .entitlementMissing: return "need a hand?"
         }
     }
 
@@ -88,74 +98,26 @@ struct TodayView: View {
 
     var body: some View {
         GeometryReader { geo in
-            ZStack {
-                SkyColor.surface.ignoresSafeArea()
-
-                ScrollView {
-                    VStack(spacing: SkySpacing.s6) {
-                        // Hero Nimbus
-                        let heroSize = min(geo.size.height * 0.35, 220)
-                        NimbusView(state: mascotManager.state, size: heroSize)
-                            .scaleEffect(nimbusScale)
-                            .animation(SkyMotion.squishSpring, value: nimbusScale)
-                            .padding(.top, SkySpacing.s8)
-                            .accessibilityLabel(mascotManager.state.accessibilityDescription)
-                            .onTapGesture { squishNimbus() }
-                            // Long-press → debug menu (S-SET-09), DEBUG builds only.
-                            #if DEBUG
-                            .onLongPressGesture(minimumDuration: 2) { showingDebugMenu = true }
-                            #endif
-                            .skyEntrance(0, revealed: revealed)
-
-                        // Status banner (S-TODAY-02 variants)
-                        statusBanner
-                            .padding(.horizontal, SkyLayout.screenMargin)
-                            .transition(.opacity.animation(SkyMotion.fadeEase))
-                            .id(appState == .blocked || appState == .emergencyUnlocked ? "urgent" : "calm")
-                            .skyEntrance(1, revealed: revealed)
-
-                        // Usage progress ring — tap opens the daily-limit editor (S-SET-02).
-                        ZStack {
-                            SkyProgressRing(progress: ringProgress, accent: ringAccent)
-                                .frame(width: 96, height: 96)
-
-                            Text(ringLabel)
-                                .skyText(.caption, color: SkyColor.inkSoft)
-                                .multilineTextAlignment(.center)
-                                .contentTransition(.numericText())
-                                .animation(reduceMotion ? nil : SkyMotion.quickEase, value: ringLabel)
-                        }
-                        .contentShape(Rectangle())
-                        .onTapGesture { showingLimitConfig = true }
-                        .accessibilityValue(ringAccessibilityValue)
-                        .accessibilityLabel("Daily usage ring")
-                        .accessibilityHint("Opens the lock time editor")
-                        .accessibilityAddTraits(.isButton)
-                        .accessibilityIdentifier("today.usageRing")
-                        .skyEntrance(2, revealed: revealed)
-
-                        // Streak chip — live count from StreakManager
-                        SkyStreakChip(days: streakManager.progress.currentStreak)
-                            .skyEntrance(3, revealed: revealed)
-
-                        // Action buttons
-                        actionButtons
-                            .padding(.horizontal, SkyLayout.screenMargin)
-                            .skyEntrance(4, revealed: revealed)
-
-                        if appState == .verifiedToday, let todaysSky {
-                            todaysSkyCard(todaysSky)
-                                .padding(.horizontal, SkyLayout.screenMargin)
-                        }
-
-                        Spacer(minLength: SkySpacing.s10)
-                    }
+            ScrollView {
+                VStack(spacing: 0) {
+                    hero(height: geo.size.height)
+                    sheet
                 }
-                .refreshable {
-                    store = SharedDefaults()
-                    mascotManager.refreshState()
-                }
+                // Fill at least the screen so the sheet reaches the tab bar.
+                .frame(minHeight: geo.size.height)
             }
+            .scrollBounceBehavior(.basedOnSize)
+            .refreshable {
+                store = SharedDefaults()
+                mascotManager.refreshState()
+            }
+            // Ground behind the status bar on top, cream under the sheet below,
+            // so over-scroll at either end shows the right colour.
+            .background(
+                VStack(spacing: 0) { heroGround; SkyColor.surface }
+                    .ignoresSafeArea()
+            )
+            .animation(reduceMotion ? nil : SkyMotion.fadeEase, value: appState)
         }
         .onAppear {
             store = SharedDefaults()
@@ -234,33 +196,146 @@ struct TodayView: View {
         .accessibilityIdentifier("today.home")
     }
 
-    // MARK: - Sub-views
+    // MARK: - Hero (top half: Pop ground, stickers, Nimbus)
 
-    @ViewBuilder
-    private var statusBanner: some View {
-        SkyCard {
-            HStack(spacing: SkySpacing.s3) {
-                Rectangle()
-                    .fill(bannerStripeColor)
-                    .frame(width: 4)
-                    .clipShape(Capsule())
+    private func hero(height: CGFloat) -> some View {
+        let nimbusSize = min(height * 0.3, 230)
+        return VStack(spacing: SkySpacing.s4) {
+            // Date sticker (info, flat) + streak badge.
+            HStack {
+                SkyPopPill(Date().formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day()),
+                           onAccent: true)
+                Spacer()
+                SkyPopStreakBadge(days: streakManager.progress.currentStreak)
+            }
+            .padding(.horizontal, SkySpacing.s5)
+            .padding(.top, SkySpacing.s4)
+            .skyEntrance(0, revealed: revealed)
 
-                VStack(alignment: .leading, spacing: SkySpacing.s1) {
-                    Text(bannerTitle)
-                        .skyText(.headline, color: SkyColor.ink)
+            ZStack(alignment: .topTrailing) {
+                NimbusView(state: mascotManager.state, size: nimbusSize)
+                    .scaleEffect(nimbusScale)
+                    .animation(SkyMotion.squishSpring, value: nimbusScale)
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, SkySpacing.s10)
+                    .accessibilityLabel(mascotManager.state.accessibilityDescription)
+                    .onTapGesture { squishNimbus() }
+                    // Long-press → debug menu (S-SET-09), DEBUG builds only.
+                    #if DEBUG
+                    .onLongPressGesture(minimumDuration: 2) { showingDebugMenu = true }
+                    #endif
 
-                    Text(bannerBody)
-                        .skyText(.bodyS, color: SkyColor.inkSoft)
-                        .fixedSize(horizontal: false, vertical: true)
+                SkySpeechBubble(text: bubbleText)
+                    .padding(.trailing, SkySpacing.s6)
+                    .id(bubbleText)
+                    .transition(.opacity)
+            }
+            .padding(.bottom, SkySpacing.s4)
+            .skyEntrance(1, revealed: revealed)
+        }
+    }
+
+    // MARK: - Sheet (bottom half: status, steps, actions)
+
+    private var sheet: some View {
+        SkyPopSheet(padding: SkySpacing.s5) {
+            VStack(alignment: .leading, spacing: SkySpacing.s4) {
+                statusBanner
+                    .id(appState == .blocked || appState == .emergencyUnlocked ? "urgent" : "calm")
+                    .transition(.opacity)
+                    .skyEntrance(2, revealed: revealed)
+
+                if appState == .blocked {
+                    unlockRequirements
+                        .skyEntrance(3, revealed: revealed)
                 }
 
-                Spacer()
+                if appState == .verifiedToday, let todaysSky {
+                    todaysSkyCard(todaysSky)
+                }
+
+                lockTimeChip
+                    .skyEntrance(3, revealed: revealed)
+
+                Spacer(minLength: SkySpacing.s4)
+
+                actionButtons
+                    .skyEntrance(4, revealed: revealed)
             }
-            .padding(.vertical, SkySpacing.s2)
+            .padding(.bottom, SkySpacing.s4)
         }
+    }
+
+    /// Title + body for the current state (S-TODAY-02). Informational, so no
+    /// outline — the outline is reserved for things you can tap.
+    private var statusBanner: some View {
+        VStack(alignment: .leading, spacing: SkySpacing.s2) {
+            Text(bannerTitle)
+                .skyText(.titleXL)
+                .fixedSize(horizontal: false, vertical: true)
+            Text(bannerBody)
+                .skyText(.bodyS, color: SkyColor.inkSoft)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(bannerTitle). \(bannerBody)")
         .accessibilityIdentifier("today.statusBanner")
+    }
+
+    /// What the walk takes: two info tiles (hairline cards, not tappable).
+    /// Values come from VerificationThresholds — never duplicated here.
+    private var unlockRequirements: some View {
+        HStack(spacing: SkySpacing.s3) {
+            requirementTile(overline: "STEPS",
+                            value: "\(VerificationThresholds.minRecentSteps)",
+                            unit: "steps",
+                            spoken: "\(VerificationThresholds.minRecentSteps) steps outside")
+            requirementTile(overline: "SKY CLIP",
+                            value: "\(VerificationThresholds.clipSeconds)",
+                            unit: "sec",
+                            spoken: "A \(VerificationThresholds.clipSeconds) second clip of the sky")
+        }
+    }
+
+    private func requirementTile(overline: String, value: String, unit: String, spoken: String) -> some View {
+        SkyCard(secondary: true, padding: SkySpacing.s4) {
+            VStack(alignment: .leading, spacing: SkySpacing.s2) {
+                Text(overline).skyText(.overline, color: SkyColor.inkSoft)
+                HStack(alignment: .firstTextBaseline, spacing: SkySpacing.s1) {
+                    Text(value).skyText(.numeral)
+                    Text(unit).skyText(.label, color: SkyColor.inkSoft)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(spoken)
+    }
+
+    /// Tappable lock-time chip → lock-time editor (S-CFG-03). Replaces the old
+    /// usage ring: with the daily lock there's no usage to show, only the time.
+    private var lockTimeChip: some View {
+        Button { showingLimitConfig = true } label: {
+            HStack(spacing: SkySpacing.s2) {
+                Image(systemName: "lock.fill").accessibilityHidden(true)
+                Text(lockChipLabel)
+                Image(systemName: "pencil").accessibilityHidden(true)
+            }
+            .skyText(.label, color: SkyColor.ink)
+        }
+        .buttonStyle(SkyChipButtonStyle())
+        .fixedSize()
+        .accessibilityLabel(lockChipLabel)
+        .accessibilityHint("Opens the lock time editor")
+        .accessibilityIdentifier("today.lockTime")
+    }
+
+    private var lockChipLabel: String {
+        switch appState {
+        case .paused, .entitlementMissing: return "Lock is off"
+        default: return "Locks daily at \(store.lockTimeLabel)"
+        }
     }
 
     @ViewBuilder
@@ -268,27 +343,30 @@ struct TodayView: View {
         VStack(spacing: SkySpacing.s3) {
             switch appState {
             case .blocked:
-                SkyPrimaryButton("Verify now") { showingVerification = true }
+                SkyPopButton("Let's go outside", systemImage: "arrow.right") { showingVerification = true }
                     .accessibilityHint("Opens the outdoor verification")
                     .accessibilityIdentifier("today.verifyButton")
-                SkySecondaryButton("I can't go outside") { showingEmergency = true }
+                Button("I can't go outside right now") { showingEmergency = true }
+                    .skyText(.label, color: SkyColor.inkSoft)
+                    .underline()
+                    .frame(maxWidth: .infinity, minHeight: SkyLayout.minTouchTarget)
                     .accessibilityHint("Opens the emergency unlock flow. This resets your streak.")
                     .accessibilityIdentifier("today.emergencyButton")
 
             case .entitlementMissing:
-                SkyCoralButton("Reauthorize") {
+                SkyPopButton("Reauthorize", kind: .coral) {
                     Task { await familyControls.requestAuthorization() }
                 }
                 .accessibilityHint("Re-grants Screen Time access so Sky can block your apps")
                 .accessibilityIdentifier("today.reauthorizeButton")
 
             case .noApps:
-                SkyPrimaryButton("Choose apps") { showingAppSelection = true }
+                SkyPopButton("Choose apps") { showingAppSelection = true }
                     .accessibilityHint("Opens the app picker")
                     .accessibilityIdentifier("today.chooseAppsButton")
 
             case .noLimit:
-                SkyPrimaryButton("Set your lock time") { showingLimitConfig = true }
+                SkyPopButton("Set your lock time") { showingLimitConfig = true }
                     .accessibilityHint("Opens the lock time editor")
                     .accessibilityIdentifier("today.setLimitButton")
 
@@ -310,9 +388,9 @@ struct TodayView: View {
                     .scaledToFill()
                     .frame(maxWidth: .infinity)
                     .frame(height: 180)
-                    .clipShape(RoundedRectangle(cornerRadius: SkyRadius.card, style: .continuous))
+                    .clipShape(RoundedRectangle(cornerRadius: SkyRadius.cardSecondary, style: .continuous))
                     .accessibilityLabel("Photo of today's sky")
-                SkySecondaryButton("Share today's sky") { showingSkyShare = true }
+                SkyPopButton("Share today's sky", kind: .cream) { showingSkyShare = true }
                     .accessibilityIdentifier("today.shareSky")
             }
         }
@@ -325,7 +403,7 @@ struct TodayView: View {
         case .entitlementMissing: return "Screen Time access needed."
         case .paused:           return "Paused."
         case .unblocked:        return "Sky is watching."
-        case .blocked:          return "Apps are paused."
+        case .blocked:          return "Apps are napping."
         case .verifiedToday:    return "Verified ☀"
         case .emergencyUnlocked: return "Emergency unlock used."
         case .noApps:           return "Nothing selected yet."
@@ -353,34 +431,6 @@ struct TodayView: View {
         fmt.dateStyle = .none
         fmt.timeStyle = .short
         return "Shields are off until \(fmt.string(from: ends))."
-    }
-
-    private var bannerStripeColor: Color {
-        switch appState {
-        case .entitlementMissing: return SkyColor.coralStreak
-        case .paused:           return SkyColor.cloudGrey
-        case .unblocked:        return SkyColor.mossGreen
-        case .blocked:          return SkyColor.coralStreak
-        case .verifiedToday:    return SkyColor.sunYellow
-        case .emergencyUnlocked: return SkyColor.cloudGrey
-        case .noApps, .noLimit: return SkyColor.primarySky
-        }
-    }
-
-    // MARK: - Ring label
-
-    private var ringLabel: String {
-        switch appState {
-        case .entitlementMissing: return "Off"
-        case .paused:           return "Off"
-        case .verifiedToday:    return "Done"
-        case .blocked:          return "Paused"
-        default:                return store.lockTimeLabel
-        }
-    }
-
-    private var ringAccessibilityValue: String {
-        "Apps pause at \(store.lockTimeLabel)"
     }
 
     // MARK: - Badge celebration queue

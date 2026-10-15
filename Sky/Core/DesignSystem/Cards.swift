@@ -132,6 +132,31 @@ struct SkyPopStreakBadge: View {
     }
 }
 
+/// Nimbus's speech bubble on a Pop hero: cream, 2.5pt ink outline, the tail
+/// corner (bottom-leading) nearly square, tilted a few degrees like a sticker.
+/// Not tappable, so no shadow. Decorative by default — the screen's real
+/// status text carries the meaning, so VoiceOver skips it.
+struct SkySpeechBubble: View {
+    let text: String
+    var tilt: Angle = .degrees(4)
+
+    var body: some View {
+        let shape = UnevenRoundedRectangle(topLeadingRadius: SkyRadius.button,
+                                           bottomLeadingRadius: SkySpacing.s1,
+                                           bottomTrailingRadius: SkyRadius.button,
+                                           topTrailingRadius: SkyRadius.button,
+                                           style: .continuous)
+        Text(text)
+            .skyText(.button, color: SkyColor.ink)
+            .padding(.vertical, SkySpacing.s2)
+            .padding(.horizontal, SkySpacing.s4)
+            .skyPopSurface(shape, fill: SkyColor.surface, outline: SkyColor.outlineOnAccent,
+                           lineWidth: SkyStroke.outline, shadow: .zero)
+            .rotationEffect(tilt)
+            .accessibilityHidden(true)
+    }
+}
+
 /// Only the top edge of a top-rounded sheet: down the left corner curve,
 /// across, and down the right curve. Inset by half the line so it isn't clipped.
 private struct SheetTopEdge: Shape {
