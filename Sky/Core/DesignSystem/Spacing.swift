@@ -24,7 +24,22 @@ enum SkyRadius {
     static let card: CGFloat = 24          // primary cards
     static let cardSecondary: CGFloat = 20 // inner / secondary cards
     static let pill: CGFloat = 999         // status pills, streak chips, badges
+    static let sheet: CGFloat = 32         // Sky Pop bottom sheet (top corners only)
     static let device: CGFloat = 48        // phone frame only
+}
+
+/// Sky Pop outline + hard-shadow geometry — DESIGN_SYSTEM.md §6 "Tappable outline".
+/// Strokes aren't spacing, so they live outside the 4pt scale.
+enum SkyStroke {
+    static let outline: CGFloat = 2.5      // chips, tiles, badges, pills
+    static let outlineHeavy: CGFloat = 3   // buttons, sheet top edge
+}
+
+/// Offset of the solid (radius 0) ink shadow under a tappable element. On press
+/// the element translates by this offset into its shadow and the shadow goes to 0.
+enum SkyPopShadow {
+    static let button = CGSize(width: 0, height: 5) // primary / full-width buttons
+    static let chip = CGSize(width: 3, height: 3)   // chips, tiles, badges
 }
 
 /// Fixed layout constants.
@@ -33,4 +48,5 @@ enum SkyLayout {
     static let screenMarginCard: CGFloat = 16  // card-led screens
     static let bottomSafeArea: CGFloat = 34    // bottom safe-area inset
     static let minTouchTarget: CGFloat = 44    // never smaller
+    static let popButtonHeight: CGFloat = 58   // Sky Pop full-width button min height
 }

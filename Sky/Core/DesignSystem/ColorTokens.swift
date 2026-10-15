@@ -75,6 +75,23 @@ enum SkyColor {
     static let sunYellow = Color(hex: "FFD66B")         // verified, milestones, badges
     static let sunYellowDeep = Color(hex: "E5B843")     // yellow shadow / accent
 
+    // MARK: Sky Pop palette — DESIGN_SYSTEM.md §2 "Sky Pop accents"
+    // Punchier siblings of the pastel accents above, for the "one loud moment"
+    // per screen. Same one-colour-one-meaning roles as their pastel twins.
+    // They stay bright in dark mode (they are grounds, not surfaces), so put
+    // `inkOnAccent` text and `outlineOnAccent` outlines on top of them.
+    static let popSky = Color(hex: "8FD3F0")    // full-bleed hero ground (Today, celebration)
+    static let popCoral = Color(hex: "FF7A66")  // streak — ink label clears AA (4.7:1)
+    static let popSun = Color(hex: "FFC93C")    // verified / milestone; also the shield ground
+
+    // MARK: Outlines — DESIGN_SYSTEM.md §6 "Tappable outline"
+    /// Ink outline + hard offset shadow marks an element as tappable. Adaptive:
+    /// ink on light surfaces, `darkInk` on `darkBg` so the outline still reads.
+    static let outline = Color(light: Color(hex: "2D3748"), dark: Color(hex: "F0F4F8"))
+    /// Outline for tappable elements sitting on a bright Pop ground (popSky /
+    /// popSun / popCoral). Those grounds don't darken, so this stays ink.
+    static let outlineOnAccent = Color(hex: "2D3748")
+
     // MARK: Text — adaptive (light value / dark value). Never pure #000/#FFF.
     static let ink = Color(light: Color(hex: "2D3748"), dark: Color(hex: "F0F4F8"))     // primary text
     static let inkSoft = Color(light: Color(hex: "5A6373"), dark: Color(hex: "A8B3C2")) // secondary
@@ -110,6 +127,10 @@ enum SkyColor {
         ("coralStreak", SkyColor.coralStreak),
         ("cloudGrey", SkyColor.cloudGrey),
         ("sunYellow", SkyColor.sunYellow),
+        ("popSky", SkyColor.popSky),
+        ("popCoral", SkyColor.popCoral),
+        ("popSun", SkyColor.popSun),
+        ("outline", SkyColor.outline),
         ("ink", SkyColor.ink),
         ("surface", SkyColor.surface),
     ]
