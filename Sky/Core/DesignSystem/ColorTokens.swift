@@ -61,7 +61,7 @@ enum SkyColor {
     static let primarySkyDeep = Color(hex: "7AB8D0")    // hover / active
     // Cream is a *surface* (chips, shield, cream cards), so it must darken in
     // dark mode — otherwise the now-adaptive `ink` text on it would be unreadable.
-    static let warmCream = Color(light: Color(hex: "FFF6E5"), dark: Color(hex: "232633"))     // surfaces, shield, chips
+    static let warmCream = Color(light: Color(hex: "FFF6E5"), dark: Color(hex: "232633"))     // surfaces, chips
     static let warmCreamDeep = Color(light: Color(hex: "F5EAD0"), dark: Color(hex: "2C3040")) // pressed cream
     static let mossGreen = Color(hex: "7CB342")         // tints, nav active, success on light
     static let mossGreenDeep = Color(hex: "5C8A2E")     // green text/icons on white

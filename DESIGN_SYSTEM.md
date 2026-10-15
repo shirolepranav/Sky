@@ -39,7 +39,7 @@ warm and never anxious.
 |---|---|---|
 | `primarySky` | `#A8D8EA` | Hero, calm backgrounds, brand surfaces |
 | `primarySkyDeep` | `#7AB8D0` | Hover / active state of sky elements |
-| `warmCream` | `#FFF6E5` | Surfaces, shield background, chips |
+| `warmCream` | `#FFF6E5` | Surfaces, chips (the shield moved to `popSun` with Sky Pop) |
 | `warmCreamDeep` | `#F5EAD0` | Pressed cream surfaces |
 | `mossGreen` | `#7CB342` | Tints, **nav active**, success cues **on light backgrounds** |
 | `mossGreenDeep` | `#5C8A2E` | Green text/icons on white (e.g. "new personal best") |
