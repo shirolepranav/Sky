@@ -232,6 +232,44 @@ struct SkyChipButtonStyle: ButtonStyle {
     }
 }
 
+// MARK: - Sky Pop tappable card (2.5pt outline, 3×3 shadow)
+
+/// A whole card that is one tap target (e.g. "This week" → insights, a badge
+/// tile). Same outline + shadow as a chip, card radius, and the label keeps its
+/// own text styles. Use `fill` for a Pop tile (e.g. `popSun` for earned badges).
+struct SkyPopCardButtonStyle: ButtonStyle {
+    var fill: Color = SkyColor.surfaceCard
+    var radius: CGFloat = SkyRadius.cardSecondary
+    var onAccent = false
+
+    func makeBody(configuration: Configuration) -> some View {
+        Content(configuration: configuration, fill: fill, radius: radius, onAccent: onAccent)
+    }
+
+    struct Content: View {
+        let configuration: Configuration
+        let fill: Color
+        let radius: CGFloat
+        let onAccent: Bool
+        @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+        var body: some View {
+            let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
+            configuration.label
+                .contentShape(shape)
+                .skyPopSurface(
+                    shape,
+                    fill: fill,
+                    outline: onAccent ? SkyColor.outlineOnAccent : SkyColor.outline,
+                    lineWidth: SkyStroke.outline,
+                    shadow: SkyPopShadow.chip,
+                    sunk: configuration.isPressed
+                )
+                .animation(reduceMotion ? nil : SkyMotion.pressEase, value: configuration.isPressed)
+        }
+    }
+}
+
 // MARK: - Convenience wrappers
 
 struct SkyPrimaryButton: View {
