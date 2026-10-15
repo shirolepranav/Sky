@@ -4,6 +4,9 @@
 // no "Best Value" ribbon, and no trial badge — there is nothing to compare it
 // against and nothing that renews.
 // Sky_App_Workflow.md §Group G S-PAY-01; Roadmap Phase 14.
+//
+// Sky Pop: the whole card is one tap target, so it wears the outline + hard
+// shadow (SkyPopCardButtonStyle) and sinks on press.
 
 import StoreKit
 import SwiftUI
@@ -35,7 +38,7 @@ struct ProPriceCardView: View {
                         .frame(height: 48)
                 } else {
                     Text(priceText)
-                        .skyText(.display, color: SkyColor.ink)
+                        .skyText(.numeral, color: SkyColor.ink)
                 }
 
                 Text("Pay once. No subscription, ever.")
@@ -45,16 +48,8 @@ struct ProPriceCardView: View {
             .frame(maxWidth: .infinity)
             .padding(.vertical, SkySpacing.s6)
             .padding(.horizontal, SkySpacing.s5)
-            .background(
-                SkyColor.primarySky.opacity(0.18),
-                in: RoundedRectangle(cornerRadius: SkyRadius.card, style: .continuous)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: SkyRadius.card, style: .continuous)
-                    .strokeBorder(SkyColor.primarySkyDeep, lineWidth: 2)
-            )
         }
-        .buttonStyle(.plain)
+        .buttonStyle(SkyPopCardButtonStyle(radius: SkyRadius.card))
         .disabled(isLoading || hasNoPrice)
         .accessibilityLabel("Sky Pro lifetime, \(priceText). One-time purchase.")
         .accessibilityAddTraits(.isButton)
