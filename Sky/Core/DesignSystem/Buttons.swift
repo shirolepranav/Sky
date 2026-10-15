@@ -1,83 +1,43 @@
 // Buttons.swift
-// Sky button styles — DESIGN_SYSTEM.md §7.
+// Sky button styles — DESIGN_SYSTEM.md §6 "Tappable outline", §7.
 //
-// The signature "pressable" look is a *solid offset* shadow (no blur): a hard
-// shadow 2px below the button. On press the button translates down 2px and the
-// shadow disappears, so it looks like it sinks into its own shadow.
+// Sky Pop: every tappable control has a 2.5–3pt ink outline plus a solid ink
+// offset shadow (0×5 buttons, 3×3 chips/cards). On press the control slides
+// into its shadow and the shadow goes to 0, so it looks pushed in.
 //
-// Use the convenience wrappers (SkyPrimaryButton, SkySecondaryButton,
-// SkyCoralButton) or apply the ButtonStyle directly to any Button.
-//
-// Sky Pop (DESIGN_SYSTEM.md §1, §6 "Tappable outline", §7): SkyPopButtonStyle /
-// SkyPopButton and SkyChipButtonStyle add a 2.5–3pt ink outline plus a hard
-// ink offset shadow (0×5 buttons, 3×3 chips). Screens move to these as they
-// are restyled; the classic styles above stay until every caller has moved.
+// Use SkyPopButton / SkyPopButtonStyle, SkyChipButtonStyle and
+// SkyPopCardButtonStyle. The classic names (SkyPrimaryButton,
+// SkySecondaryButton, SkyCoralButton) are kept and render the same Pop look.
 
 import SwiftUI
 
-// MARK: - Primary (mossGreenAction, white label)
+// MARK: - Classic names → Sky Pop
+//
+// The original three styles now render the Sky Pop outlined look, so every
+// screen that uses them is consistent with "outline + hard shadow = tappable"
+// without touching each call site. Names and call shapes are unchanged.
 
+/// Main action: mossGreenAction fill, white label (AA 4.6:1), Pop outline.
 struct SkyPrimaryButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View { Content(configuration: configuration) }
-
-    struct Content: View {
-        let configuration: Configuration
-        @Environment(\.isEnabled) private var isEnabled
-
-        var body: some View {
-            let lifted = isEnabled && !configuration.isPressed
-            configuration.label
-                .skyText(.headline, color: .white)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 18)
-                .padding(.horizontal, SkySpacing.s6)
-                .background(
-                    isEnabled ? SkyColor.mossGreenAction : SkyColor.inkDisabled,
-                    in: RoundedRectangle(cornerRadius: SkyRadius.button, style: .continuous)
-                )
-                .offset(y: configuration.isPressed ? 2 : 0)
-                .shadow(color: lifted ? SkyColor.mossGreenActionDeep : .clear,
-                        radius: 0, x: 0, y: lifted ? 2 : 0)
-                .animation(SkyMotion.pressEase, value: configuration.isPressed)
-        }
+    func makeBody(configuration: Configuration) -> some View {
+        SkyPopButtonStyle(kind: .primary).makeBody(configuration: configuration)
     }
 }
 
-// MARK: - Secondary (transparent, bordered)
-
+/// Secondary action: cream fill, ink label, Pop outline. `dark` is for the
+/// always-dark camera / overlay contexts — the outline there stays ink on the
+/// cream fill, so it reads on any backdrop.
 struct SkySecondaryButtonStyle: ButtonStyle {
     var dark = false
     func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(.system(size: 16, weight: .bold, design: .rounded))
-            .tracking(-0.2)
-            .foregroundStyle(dark ? SkyColor.darkInk : SkyColor.inkSoft)
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, SkySpacing.s4)
-            .padding(.horizontal, SkySpacing.s6)
-            .background(.clear, in: RoundedRectangle(cornerRadius: SkyRadius.button, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: SkyRadius.button, style: .continuous)
-                    .strokeBorder(dark ? SkyColor.darkDivider : SkyColor.ink.opacity(0.12), lineWidth: 1.5)
-            )
-            .opacity(configuration.isPressed ? 0.6 : 1)
+        SkyPopButtonStyle(kind: .cream, onAccent: dark).makeBody(configuration: configuration)
     }
 }
 
-// MARK: - Coral (destructive / "unlock anyway")
-
+/// Friction / "unlock anyway": popCoral fill, ink label (AA 4.7:1), Pop outline.
 struct SkyCoralButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .skyText(.headline, color: .white)
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 18)
-            .padding(.horizontal, SkySpacing.s6)
-            .background(SkyColor.coralStreak, in: RoundedRectangle(cornerRadius: SkyRadius.button, style: .continuous))
-            .offset(y: configuration.isPressed ? 2 : 0)
-            .shadow(color: configuration.isPressed ? .clear : SkyColor.coralStreakDeep,
-                    radius: 0, x: 0, y: configuration.isPressed ? 0 : 2)
-            .animation(SkyMotion.pressEase, value: configuration.isPressed)
+        SkyPopButtonStyle(kind: .coral).makeBody(configuration: configuration)
     }
 }
 
@@ -197,15 +157,18 @@ struct SkyPopButtonStyle: ButtonStyle {
 struct SkyChipButtonStyle: ButtonStyle {
     var isSelected = false
     var onAccent = false
+    /// Narrow side padding for tight rows (e.g. seven weekday chips).
+    var compact = false
 
     func makeBody(configuration: Configuration) -> some View {
-        Content(configuration: configuration, isSelected: isSelected, onAccent: onAccent)
+        Content(configuration: configuration, isSelected: isSelected, onAccent: onAccent, compact: compact)
     }
 
     struct Content: View {
         let configuration: Configuration
         let isSelected: Bool
         let onAccent: Bool
+        let compact: Bool
         @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
         var body: some View {
@@ -213,7 +176,7 @@ struct SkyChipButtonStyle: ButtonStyle {
             let outline = onAccent ? SkyColor.outlineOnAccent : SkyColor.outline
             configuration.label
                 .skyText(.button, color: isSelected ? SkyColor.surface : SkyColor.ink)
-                .padding(.horizontal, SkySpacing.s4)
+                .padding(.horizontal, compact ? SkySpacing.s1 : SkySpacing.s4)
                 .padding(.vertical, SkySpacing.s3)
                 .frame(maxWidth: .infinity, minHeight: SkyLayout.minTouchTarget)
                 .contentShape(shape)

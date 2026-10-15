@@ -214,42 +214,11 @@ keeps the louder look legible:
 
 ## 7. Components
 
-### Primary button
-- Fill `mossGreenAction #52822A`, label `#FFFFFF`, **17 / 800**, letter-spacing -0.2.
-- Radius `rBtn (18)`, padding `18 × 24`, full-width by default.
-- Shadow: solid offset `0 2px 0 #3D6420`.
-- **Pressed:** translate down ~2px, drop the offset shadow.
-- **Disabled:** fill `inkDisabled #CBD5E0`, no shadow.
-
-### Sky Pop button (`SkyPopButton` / `SkyPopButtonStyle`)
-- Full-width, min height 58, radius `rBtn (18)`, label **Button** style (20, display face).
-- 3pt outline + `0 5px 0` hard shadow (§6 "Tappable outline").
-- Kinds (all clear AA): `primary` `mossGreenAction` + white · `cream` `warmCream` + ink ·
-  `ink` ink + surface label · `coral` `popCoral` + ink.
-- On a Pop ground pass `onAccent: true` so the outline stays ink in dark mode.
-
-### Sky Pop chip / selectable tile (`SkyChipButtonStyle`)
-- Radius `rChip (14)`, min 44pt tall, `surfaceCard` fill, ink label (Button style).
-- 2.5pt outline + `3px 3px 0` hard shadow. **Selected:** ink fill, surface label, pushed
-  into its shadow; reports `.isSelected` to VoiceOver.
-
-### Sky Pop pill & streak badge (`SkyPopPill`, `SkyPopStreakBadge`)
-- Capsule, 2.5pt outline, **Label** text. `raised: true` (badge) adds the 3×3 shadow;
-  flat stickers have none.
-- Streak badge: `popCoral` fill, sun-filled ink flame, display-face count, raised.
-
-### Sky Pop bottom sheet (`SkyPopSheet`)
-- Cream `surface`, top corners `sheet (32)`, 3pt `outlineOnAccent` top edge only, runs into the
-  bottom safe area. Sits under a full-bleed Pop hero.
-
-### Secondary button
-- Transparent fill, label `inkSoft` (dark: `darkInk`), **16 / 700**.
-- Border `1.5px solid rgba(45,55,72,0.12)` (dark: `darkDivider`).
-- Radius 18, padding `16 × 24`, full-width.
-
-### Coral button (destructive / "unlock anyway")
-- Fill `coralStreak #FF8A7A`, label `#FFFFFF`, **17 / 800**.
-- Radius 18, padding `18 × 24`, shadow `0 2px 0 #E5685A`.
+### Primary / Secondary / Coral (classic names)
+`SkyPrimaryButton`, `SkySecondaryButton` and `SkyCoralButton` (and their styles)
+render the Sky Pop button above: **primary** → `primary` kind, **secondary** →
+`cream` kind, **coral** → `coral` kind (ink label; the old white-on-coral label
+failed AA). The old 2px tinted shadow and the hairline secondary are retired.
 
 ### Card
 - Fill `surfaceCard #FFFFFF`, radius `rCard (24)`, `1px solid divider`, padding 20.
