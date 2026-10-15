@@ -46,7 +46,7 @@ struct VerificationSuccessView: View {
                     .skyText(.titleL)
                     .multilineTextAlignment(.center)
 
-                Text("Apps are open for your next \(store.sessionLengthLabel) of use. Enjoy.")
+                Text("Apps are open until your next lock, \(store.lockTimeLabel). Enjoy.")
                     .skyText(.body, color: SkyColor.inkSoft)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, SkyLayout.screenMargin)
@@ -72,7 +72,7 @@ struct VerificationSuccessView: View {
             #if os(iOS)
             UIAccessibility.post(
                 notification: .announcement,
-                argument: "Verified. Apps are open for your next \(store.sessionLengthLabel) of use."
+                argument: "Verified. Apps are open until your next lock, \(store.lockTimeLabel)."
             )
             #endif
         }
@@ -94,7 +94,7 @@ struct VerificationSuccessView: View {
         store.stampTodayState()
 
         // 2. Clear the ManagedSettings shield
-        ShieldService.unlockApps(source: .verificationSuccess, store: store)
+        ShieldService.unlockApps(source: .verificationSuccess)
 
         // 3. Animate streak chip after short delay
         try? await Task.sleep(for: .milliseconds(500))

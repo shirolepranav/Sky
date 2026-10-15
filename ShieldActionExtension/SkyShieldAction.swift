@@ -9,9 +9,12 @@
 //
 // An app extension cannot call UIApplication.shared.open() (UIApplication.shared
 // is unavailable in extensions), and ShieldActionResponse has no "open host app"
-// case. So the handoff is via the App Group: we write the pending destination to
-// shared UserDefaults and call completionHandler(.close). SkyApp reads and clears
-// `pending_deep_link` on scenePhase == .active and presents the destination.
+// case. So the handoff is two-fold:
+//   1. The pending destination goes to the App Group; SkyApp reads and clears
+//      `pending_deep_link` on scenePhase == .active.
+//   2. A local notification is posted whose tap opens Sky on that destination
+//      (SkyNotificationRouter). Without it, `.close` dropped the user on the Home
+//      screen with no sign anything had happened — the "buttons don't work" bug.
 //
 // This target cannot import the Sky module, so the App Group is accessed via raw
 // UserDefaults keys that mirror SharedDefaults.Key — keep both in sync.
@@ -19,12 +22,15 @@
 import ManagedSettings
 import ManagedSettingsUI
 import Foundation
+import UserNotifications
 
 final class SkyShieldAction: ShieldActionDelegate {
 
     // Raw key string mirrors SharedDefaults.Key.pendingDeepLink (Technical Spec §6.1).
     private static let suiteName = "group.com.shirolepranav.sky"
     private static let pendingDeepLinkKey = "pending_deep_link"
+    /// Mirrors `SkyNotificationRouter.deepLinkKey` in the Sky module.
+    private static let deepLinkUserInfoKey = "sky_deep_link"
 
     override func handle(
         action: ShieldAction,
@@ -70,10 +76,24 @@ final class SkyShieldAction: ShieldActionDelegate {
         if let destination {
             let ud = UserDefaults(suiteName: Self.suiteName) ?? .standard
             ud.set(destination, forKey: Self.pendingDeepLinkKey)
+            postContinueNotification(for: destination)
         }
 
         // .close dismisses the shield and the shielded app; the user re-opens Sky,
         // and SkyApp consumes the pending destination on activation.
         completionHandler(.close)
+    }
+
+    /// Delivered immediately (nil trigger). A stable identifier means repeated taps
+    /// replace the banner rather than stacking several.
+    private func postContinueNotification(for destination: String) {
+        let content = UNMutableNotificationContent()
+        content.title = destination == "emergency" ? "Emergency unlock" : "Nimbus is ready"
+        content.body = destination == "emergency"
+            ? "Tap to continue in Sky."
+            : "Tap to head outside and unlock your apps ☁"
+        content.userInfo = [Self.deepLinkUserInfoKey: destination]
+        let request = UNNotificationRequest(identifier: "sky.notif.shieldTap", content: content, trigger: nil)
+        UNUserNotificationCenter.current().add(request, withCompletionHandler: nil)
     }
 }

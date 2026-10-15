@@ -12,14 +12,9 @@ final class ShieldConfigurationTests: XCTestCase {
 
     // MARK: Title
 
-    func testTitleContainsAppName() {
-        let title = "Sky — Time's up"
-        XCTAssertTrue(title.hasPrefix("Sky"))
-    }
-
-    func testTitleContainsTimesUp() {
-        let title = "Sky — Time's up"
-        XCTAssertTrue(title.contains("Time's up"))
+    func testTitleSaysPaused() {
+        let title = "Apps are paused"
+        XCTAssertTrue(title.contains("paused"))
     }
 
     // MARK: Subtitle — carries the outdoor framing
@@ -31,30 +26,20 @@ final class ShieldConfigurationTests: XCTestCase {
 
     // MARK: Primary button
 
-    func testPrimaryButtonLabelIsNotEmpty() {
-        let label = "Open Sky to unlock"
-        XCTAssertFalse(label.isEmpty)
-    }
-
-    /// Both shield buttons resolve to `ShieldActionResponse.close`, which drops the
-    /// user on the Home screen — an app extension cannot launch its container. The
-    /// label has to name that next step or the flow reads as a dead end; the
-    /// outdoor framing moved to the subtitle.
-    func testPrimaryButtonLabelNamesTheAppToOpen() {
-        let label = "Open Sky to unlock"
+    func testPrimaryButtonLabelNamesTheApp() {
+        let label = "Unlock with Sky"
         XCTAssertTrue(label.contains("Sky"))
-        XCTAssertTrue(label.lowercased().contains("open"))
     }
 
     // MARK: Auxiliary button — brand voice (PRD §7: never guilt-trip)
 
     func testAuxiliaryButtonLabelIsNotEmpty() {
-        let label = "I can't go outside right now"
+        let label = "Emergency unlock"
         XCTAssertFalse(label.isEmpty)
     }
 
     func testAuxiliaryButtonLabelIsKind() {
-        let label = "I can't go outside right now".lowercased()
+        let label = "Emergency unlock".lowercased()
         // PRD §7: warm and truthful, not cold or punishing.
         XCTAssertFalse(label.contains("waste"))
         XCTAssertFalse(label.contains("fail"))

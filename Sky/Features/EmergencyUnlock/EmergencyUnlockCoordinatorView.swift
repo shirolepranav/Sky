@@ -112,7 +112,7 @@ struct EmergencyUnlockCoordinatorView: View {
         store.stampTodayState(now: now)
 
         // 3. Clear the active shield in ManagedSettings
-        ShieldService.unlockApps(source: .emergency, store: store)
+        ShieldService.unlockApps(source: .emergency)
 
         // 4. Update streak + mascot state
         streakManager.handleEmergencyUnlock()

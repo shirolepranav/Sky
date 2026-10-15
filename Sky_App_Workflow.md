@@ -1,5 +1,7 @@
 # Sky — App Workflow Specification
 
+> **2026-10-14 pivot — read `DAILY_LOCK_PLAN.md` first.** Sky no longer uses a usage budget. Apps lock every morning at a user-picked time and stay locked until a verification (≈200 steps + GPS + a 5-second sky clip; the scene check is waived after dusk). Where this document describes session limits, per-app limits, the 30-minute warning, "Time's up", the 30-second video, Night Mode or the midnight shield clear, `DAILY_LOCK_PLAN.md`, the PRD and the code win.
+
 *Companion to `Sky_PRD.md`, `Sky_Development_Roadmap.md`, and `Sky_Technical_Spec.md`.*
 
 This document enumerates **every screen, every component, every state, every interaction, and every navigation path** in Sky v1.0. It is written to be fed page-by-page into an AI coding assistant alongside the roadmap, so that each phase can be implemented without re-deriving UX decisions.

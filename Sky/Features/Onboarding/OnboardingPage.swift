@@ -32,7 +32,7 @@ enum OnboardingPage: Int, CaseIterable, Identifiable {
         switch self {
         case .welcome: "Hi, I'm \(AppBranding.mascotName)."
         case .pickApps: "Pick the apps that pull you in."
-        case .budget: "Decide how much is enough."
+        case .budget: "Your apps pause every morning."
         case .goOutside: "Touch grass, then come back."
         case .ready: "Your videos stay on your phone."
         }
@@ -46,9 +46,9 @@ enum OnboardingPage: Int, CaseIterable, Identifiable {
         case .pickApps:
             "You'll choose from your phone's apps. Sky never sees their names — only you do."
         case .budget:
-            "One hour. Two. Three. When you hit your limit, the apps pause until you take a break outside — and every trip outside earns you that time again."
+            "Pick a time. Each day at that time the apps pause, and stay paused until you step outside. One short walk unlocks them for the rest of the day."
         case .goOutside:
-            "To unlock the apps, head outside and record a short video. Sky checks the sky, the light, and your steps — all on your phone."
+            "Take a short walk outside, then film a 5-second clip of the sky. Sky checks your steps, your location, and the view — all on your phone."
         case .ready:
             nil
         }

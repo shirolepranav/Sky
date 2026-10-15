@@ -1,23 +1,38 @@
 // SkyShieldConfiguration.swift
 // Principal class for the ShieldConfiguration extension target
-// (Technical Spec §7.5, Sky_App_Workflow.md S-SHIELD-01).
+// (Technical Spec §7.5, Sky_App_Workflow.md S-SHIELD-01; DAILY_LOCK_PLAN.md Phase A).
 //
-// Phase 6: returns the Sky-branded ShieldConfiguration — warm-cream background,
-// Nimbus mascot PNG, "Time's up" copy, and two action buttons whose handlers live
+// Returns the Sky-branded ShieldConfiguration — warm-cream background, Nimbus
+// mascot PNG, "Apps are paused" copy, and two action buttons whose handlers live
 // in SkyShieldAction.swift.
 //
-// Extension targets cannot import the main Sky module, so colour values are
-// expressed as UIColor literals that mirror SkyColor in ColorTokens.swift.
-// AppBranding constants are inlined below — update both on a rebrand.
+// Every colour is *adaptive*. iOS draws the shield in the system appearance, so a
+// fixed light-mode ink on a dark shield left the title and secondary label
+// unreadable. The light/dark pairs mirror SkyColor in ColorTokens.swift —
+// extension targets cannot import the main Sky module. AppBranding constants are
+// inlined below for the same reason; update both on a rebrand.
 
 import ManagedSettings
 import ManagedSettingsUI
 import UIKit
 
-// These literals mirror AppBranding.{appName, mascotName} — extensions cannot
-// import the main Sky target. Update both files if the product is rebranded.
+// These literals mirror AppBranding.{appName, mascotName}.
 private let kAppName    = "Sky"
 private let kMascotName = "Nimbus"
+
+/// `light` in light mode, `dark` in dark mode — mirrors `Color(light:dark:)`.
+private func adaptive(_ light: UInt32, _ dark: UInt32) -> UIColor {
+    UIColor { $0.userInterfaceStyle == .dark ? rgb(dark) : rgb(light) }
+}
+
+private func rgb(_ hex: UInt32) -> UIColor {
+    UIColor(
+        red: CGFloat((hex >> 16) & 0xFF) / 255,
+        green: CGFloat((hex >> 8) & 0xFF) / 255,
+        blue: CGFloat(hex & 0xFF) / 255,
+        alpha: 1
+    )
+}
 
 final class SkyShieldConfiguration: ShieldConfigurationDataSource {
 
@@ -38,37 +53,20 @@ final class SkyShieldConfiguration: ShieldConfigurationDataSource {
 
     private func makeShieldConfiguration() -> ShieldConfiguration {
         ShieldConfiguration(
-            // #FFF6E5 warmCream — matches SkyColor.warmCream
-            backgroundColor: UIColor(red: 1.0, green: 246/255, blue: 229/255, alpha: 1),
+            backgroundBlurStyle: nil,
+            backgroundColor: adaptive(0xFFF6E5, 0x232633),        // SkyColor.warmCream
             // NimbusCloudy imageset lives in this extension's Assets.xcassets.
-            // Run NimbusPNGExporter (Sky/Features/Mascot/NimbusPNGExporter.swift)
-            // once in the iOS Simulator to generate the @1x/@2x/@3x PNG files
-            // and add them to ShieldConfigurationExtension/Assets.xcassets/NimbusCloudy.imageset/.
             icon: UIImage(named: "NimbusCloudy"),
-            // #2D3748 ink — matches SkyColor.ink
-            title: .init(
-                text: "\(kAppName) — Time's up",
-                color: UIColor(red: 45/255, green: 55/255, blue: 72/255, alpha: 1)
-            ),
-            // #5A6373 inkSoft — matches SkyColor.inkSoft
+            title: .init(text: "Apps are paused", color: adaptive(0x2D3748, 0xF0F4F8)),            // ink
             subtitle: .init(
                 text: "\(kMascotName) is waiting outside for you ☁",
-                color: UIColor(red: 90/255, green: 99/255, blue: 115/255, alpha: 1)
+                color: adaptive(0x5A6373, 0xA8B3C2)                                                // inkSoft
             ),
-            // Both buttons resolve to `ShieldActionResponse.close` in SkyShieldAction,
-            // which dismisses the shield *and* the blocked app — the user lands on the
-            // Home screen and has to tap Sky themselves (an app extension has no
-            // supported way to launch its container). The label therefore names that
-            // next step rather than promising the shield will take them somewhere.
-            // The outdoor framing is carried by the subtitle above.
-            primaryButtonLabel: .init(text: "Open \(kAppName) to unlock", color: .white),
-            // #52822A mossGreenAction — only green that clears WCAG AA with white label
-            primaryButtonBackgroundColor: UIColor(red: 82/255, green: 130/255, blue: 42/255, alpha: 1),
-            // #2D3748 ink
-            secondaryButtonLabel: .init(
-                text: "I can't go outside right now",
-                color: UIColor(red: 45/255, green: 55/255, blue: 72/255, alpha: 1)
-            )
+            // Both buttons close the shield and post a "tap to continue" notification
+            // (SkyShieldAction) — an extension cannot launch its container app.
+            primaryButtonLabel: .init(text: "Unlock with \(kAppName)", color: rgb(0xFFFFFF)),
+            primaryButtonBackgroundColor: rgb(0x52822A),                                          // mossGreenAction
+            secondaryButtonLabel: .init(text: "Emergency unlock", color: adaptive(0x5A6373, 0xA8B3C2))
         )
     }
 }

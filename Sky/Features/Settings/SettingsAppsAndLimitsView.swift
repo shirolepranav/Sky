@@ -1,5 +1,5 @@
 // SettingsAppsAndLimitsView.swift
-// S-SET-02 — Re-entry into app selection (S-CFG-01) and limit configuration
+// S-SET-02 — Re-entry into app selection (S-CFG-01) and the lock time
 // (S-CFG-03) for editing. Each row shows the current state at a glance. Saving a
 // change re-arms DeviceActivity monitoring so the new configuration takes effect.
 // Sky_App_Workflow.md S-SET-02; Roadmap Phase 15.
@@ -24,7 +24,7 @@ struct SettingsAppsAndLimitsView: View {
                 NavigationLink {
                     EditLimitsScreen { rearm() }
                 } label: {
-                    row(title: "Session limit", subtitle: limitSubtitle, coral: false)
+                    row(title: "Lock time", subtitle: limitSubtitle, coral: false)
                 }
                 .accessibilityIdentifier("settings.limits.edit")
             }
@@ -32,7 +32,7 @@ struct SettingsAppsAndLimitsView: View {
         .listStyle(.insetGrouped)
         .scrollContentBackground(.hidden)
         .background(SkyColor.surface.ignoresSafeArea())
-        .navigationTitle("Apps & Limits")
+        .navigationTitle("Apps & Lock")
         .navigationBarTitleDisplayMode(.inline)
         .onAppear { store = SharedDefaults() }
         .accessibilityIdentifier("settings.appsAndLimits.root")
@@ -55,11 +55,8 @@ struct SettingsAppsAndLimitsView: View {
     }
 
     private var limitSubtitle: String {
-        if store.limitMode == "perApp" {
-            let n = store.selection?.applicationTokens.count ?? 0
-            return "Per-app: \(n) app\(n == 1 ? "" : "s")"
-        }
-        return "\(store.sessionLengthLabel) combined, per session"
+        let days = store.lockWeekdays.count == 7 ? "every day" : "\(store.lockWeekdays.count) days a week"
+        return "\(store.lockTimeLabel), \(days)"
     }
 
     // MARK: - Actions
@@ -67,6 +64,9 @@ struct SettingsAppsAndLimitsView: View {
     private func rearm() {
         store = SharedDefaults()
         try? deviceActivity.startMonitoring()
+        // A lock time moved to an hour already past today applies now — the
+        // extension ignores the start iOS fires on registration.
+        ShieldService.reconcile()
     }
 }
 

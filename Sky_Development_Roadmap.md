@@ -1,5 +1,7 @@
 # Sky — Development Roadmap
 
+> **2026-10-14 pivot — read `DAILY_LOCK_PLAN.md` first.** Sky no longer uses a usage budget. Apps lock every morning at a user-picked time and stay locked until a verification (≈200 steps + GPS + a 5-second sky clip; the scene check is waived after dusk). Where this document describes session limits, per-app limits, the 30-minute warning, "Time's up", the 30-second video, Night Mode or the midnight shield clear, `DAILY_LOCK_PLAN.md`, the PRD and the code win.
+
 16 phases, ordered by dependency. Each phase is scoped tightly enough to fit in an AI coding tool's context window. Each phase has:
 - **Code Development** — what to build
 - **Automated Tests** — XCTest / XCUITest cases an AI assistant can write and run

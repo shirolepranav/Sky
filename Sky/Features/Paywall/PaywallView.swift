@@ -105,7 +105,7 @@ struct PaywallView: View {
 
             VStack(alignment: .leading, spacing: SkySpacing.s3) {
                 FeatureBullet(icon: "infinity", text: "Unlimited apps.")
-                FeatureBullet(icon: "chart.bar.fill", text: "Per-app limits.")
+                FeatureBullet(icon: "calendar", text: "Choose your lock days.")
                 FeatureBullet(icon: "star.fill", text: "Weekly insights & all badges.")
             }
             .padding(.top, SkySpacing.s2)
@@ -143,9 +143,9 @@ struct PaywallView: View {
                     isLast: false
                 )
                 ComparisonRow(
-                    feature: "Session limits",
-                    free: "Combined",
-                    pro: "Per-app ✓",
+                    feature: "Lock days",
+                    free: "Every day",
+                    pro: "Your choice ✓",
                     isLast: false
                 )
                 ComparisonRow(

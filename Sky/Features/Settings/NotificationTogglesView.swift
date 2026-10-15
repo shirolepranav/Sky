@@ -1,7 +1,8 @@
 // NotificationTogglesView.swift
 // S-SET-04 — Per-notification opt-in/out. Writes flags to SharedDefaults and
-// re-schedules calendar notifications via LocalNotificationScheduler. Block-start
-// is always on (PRD §4.11) and shown as a disabled row. When OS notifications are
+// re-schedules calendar notifications via LocalNotificationScheduler. The
+// morning-lock notification is always on (DAILY_LOCK_PLAN.md) and shown as a
+// disabled row. When OS notifications are
 // denied, every toggle is disabled with a deep link to Settings.
 // Sky_App_Workflow.md S-SET-04; Roadmap Phase 15.
 
@@ -14,7 +15,6 @@ struct NotificationTogglesView: View {
     @EnvironmentObject private var streakManager: StreakManager
 
     @State private var store = SharedDefaults()
-    @State private var warning = SharedDefaults().notifWarningEnabled
     @State private var streak  = SharedDefaults().notifStreakEnabled
     @State private var authStatus: UNAuthorizationStatus = .notDetermined
 
@@ -36,18 +36,16 @@ struct NotificationTogglesView: View {
             }
 
             Section {
-                toggleRow("30-minute warning before block", isOn: $warning)
-
-                // Block start — always on per PRD §4.11.
+                // Morning lock — always on.
                 HStack {
-                    Text("Block start")
+                    Text("Apps paused for the day")
                         .skyText(.body, color: SkyColor.inkSoft)
                     Spacer()
                     Text("Always on")
                         .skyText(.caption, color: SkyColor.inkMuted)
                 }
                 .accessibilityElement(children: .combine)
-                .accessibilityLabel("Block start notification. Always on.")
+                .accessibilityLabel("Apps paused notification. Always on.")
 
                 if storeKit.isPro {
                     toggleRow("Streak warning at 10 PM", isOn: $streak)
@@ -55,7 +53,7 @@ struct NotificationTogglesView: View {
                     proLockedRow("Streak warning at 10 PM")
                 }
             } footer: {
-                Text("Sky sends at most two a day, and only when your own usage triggers them. All of them are scheduled by your phone — Sky doesn't use push servers.")
+                Text("Sky sends one notification when your apps pause each morning, and nothing more unless you turn on the streak warning. All of them come from your phone — Sky doesn't use push servers.")
                     .skyText(.caption, color: SkyColor.inkSoft)
             }
         }
@@ -65,7 +63,6 @@ struct NotificationTogglesView: View {
         .navigationTitle("Notifications")
         .navigationBarTitleDisplayMode(.inline)
         .task { authStatus = await scheduler.authorizationStatus() }
-        .onChange(of: warning) { _, v in store.notifWarningEnabled = v; reschedule() }
         .onChange(of: streak)  { _, v in store.notifStreakEnabled  = v; reschedule() }
         .accessibilityIdentifier("notif.root")
     }

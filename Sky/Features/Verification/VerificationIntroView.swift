@@ -1,8 +1,29 @@
 // VerificationIntroView.swift
-// S-VER-01 — Briefs the user before recording begins.
+// S-VER-01 — Briefs the user before recording begins, with a live step count
+// toward the walk the step check needs (DAILY_LOCK_PLAN.md Phase E).
 // Sky_App_Workflow.md §Part 2 S-VER-01.
 
+import CoreMotion
 import SwiftUI
+
+/// Live steps over the last `stepWindowSeconds`, for display only — the decision
+/// re-queries the pedometer when recording ends.
+@MainActor
+private final class RecentStepsModel: ObservableObject {
+    @Published var steps: Int?
+    private let pedometer = CMPedometer()
+
+    func start() {
+        guard CMPedometer.isStepCountingAvailable() else { return }
+        let from = Date().addingTimeInterval(-VerificationThresholds.stepWindowSeconds)
+        pedometer.startUpdates(from: from) { [weak self] data, _ in
+            let count = data?.numberOfSteps.intValue
+            Task { @MainActor in self?.steps = count }
+        }
+    }
+
+    func stop() { pedometer.stopUpdates() }
+}
 
 struct VerificationIntroView: View {
     var onPrimary: () -> Void
@@ -13,11 +34,13 @@ struct VerificationIntroView: View {
         let text: String
     }
 
+    @StateObject private var recent = RecentStepsModel()
+
     private let bullets: [BulletItem] = [
         BulletItem(icon: "figure.walk",
-                   text: "You'll record a 30-second video while walking."),
+                   text: "Take a short walk outside — about \(VerificationThresholds.minRecentSteps) steps."),
         BulletItem(icon: "sun.max",
-                   text: "Point at the sky for a few seconds when Sky asks."),
+                   text: "Then film \(VerificationThresholds.clipSeconds) seconds, from the ground up to the sky."),
         BulletItem(icon: "lock",
                    text: "Everything stays on your phone."),
     ]
@@ -64,6 +87,15 @@ struct VerificationIntroView: View {
                 }
                 .padding(.horizontal, SkyLayout.screenMargin)
 
+                if let steps = recent.steps {
+                    let goal = VerificationThresholds.minRecentSteps
+                    Text(steps >= goal ? "\(steps) steps — you're ready ☀" : "\(steps) of \(goal) steps")
+                        .skyText(.headline, color: steps >= goal ? SkyColor.mossGreen : SkyColor.inkSoft)
+                        .monospacedDigit()
+                        .padding(.top, SkySpacing.s5)
+                        .accessibilityIdentifier("verification.intro.steps")
+                }
+
                 Spacer()
 
                 SkyPrimaryButton("I'm outside", action: onPrimary)
@@ -72,6 +104,8 @@ struct VerificationIntroView: View {
             }
         }
         .accessibilityIdentifier("verification.intro")
+        .onAppear { recent.start() }
+        .onDisappear { recent.stop() }
     }
 }
 

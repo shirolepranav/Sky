@@ -1,63 +1,51 @@
 // SensorReading.swift
-// Aggregated sensor snapshot from a 30-second outdoor verification recording.
-// Tech Spec §8.4. Produced by SensorRecorder, consumed by VerificationProcessingView
-// and (Phase 10) VerificationDecisionEngine.
-//
-// Conforms to Equatable + Hashable so it can be embedded in RecordingState.finished
-// (needs Equatable) and VerificationStep.processing (needs Hashable).
+// Aggregated sensor snapshot from an outdoor verification.
+// Tech Spec §8.4; DAILY_LOCK_PLAN.md Phase E. Produced by SensorRecorder,
+// consumed by VerificationDecisionEngine.
 
 import CoreLocation
 import Foundation
 
 struct SensorReading: Equatable, Hashable {
-    /// Smallest horizontalAccuracy value seen during recording (smaller = better signal).
+    /// Smallest horizontalAccuracy value seen (smaller = better). .infinity = no fix.
     let gpsAccuracyAtBest: CLLocationAccuracy
-    /// Highest speed observed, in m/s. Uses CLLocation.speed (Kalman-filtered) when available.
-    let maxHorizontalSpeed: Double
-    /// |max − min| relative altitude over the recording window, in metres.
-    let altitudeChangeMeters: Double
-    /// Median camera exposureTargetOffset — negative = underexposed/dark, 0 = correct.
-    let medianExposureBias: Float
-    /// Local time when recording started — used for sunrise/sunset check.
+    /// Local time when recording started.
     let timeOfDay: Date
-    /// True if any GPS sample carried an accessory/simulated-by-software flag (spoof detected).
+    /// True if any GPS sample carried an accessory/simulated-by-software flag.
     let gpsSpoofed: Bool
-    /// True if timeOfDay falls between sunrise and sunset at the recorded location.
-    let sunriseSunsetCheckPassed: Bool
+    /// True between civil dawn and civil dusk at the recorded location. When false
+    /// the camera checks are waived (they can't see a night sky).
+    let isDaylight: Bool
+    /// Steps in the `stepWindowSeconds` before recording ended, or nil when this
+    /// device can't count steps at all (the check is then waived).
+    let recentSteps: Int?
+    /// True when the user has denied Motion & Fitness access.
+    let motionDenied: Bool
     /// Best GPS location rounded to 0.01° as "lat_lng", used for the Wanderer badge.
-    /// Nil when GPS was unavailable or accuracy was too poor (> 100 m).
     let bestLocationTag: String?
 
-    /// Designated initialiser with a default for `bestLocationTag` so existing
-    /// call sites that omit it compile without change.
     init(
         gpsAccuracyAtBest: CLLocationAccuracy,
-        maxHorizontalSpeed: Double,
-        altitudeChangeMeters: Double,
-        medianExposureBias: Float,
-        timeOfDay: Date,
-        gpsSpoofed: Bool,
-        sunriseSunsetCheckPassed: Bool,
+        timeOfDay: Date = Date(),
+        gpsSpoofed: Bool = false,
+        isDaylight: Bool,
+        recentSteps: Int?,
+        motionDenied: Bool = false,
         bestLocationTag: String? = nil
     ) {
-        self.gpsAccuracyAtBest        = gpsAccuracyAtBest
-        self.maxHorizontalSpeed       = maxHorizontalSpeed
-        self.altitudeChangeMeters     = altitudeChangeMeters
-        self.medianExposureBias       = medianExposureBias
-        self.timeOfDay                = timeOfDay
-        self.gpsSpoofed               = gpsSpoofed
-        self.sunriseSunsetCheckPassed = sunriseSunsetCheckPassed
-        self.bestLocationTag          = bestLocationTag
+        self.gpsAccuracyAtBest = gpsAccuracyAtBest
+        self.timeOfDay         = timeOfDay
+        self.gpsSpoofed        = gpsSpoofed
+        self.isDaylight        = isDaylight
+        self.recentSteps       = recentSteps
+        self.motionDenied      = motionDenied
+        self.bestLocationTag   = bestLocationTag
     }
 
-    /// Zero-signal sentinel used when sensors are unavailable (simulator, mock tests).
+    /// Zero-signal sentinel used when sensors are unavailable (simulator, mocks).
     static let unavailable = SensorReading(
         gpsAccuracyAtBest: .infinity,
-        maxHorizontalSpeed: 0,
-        altitudeChangeMeters: 0,
-        medianExposureBias: 0,
-        timeOfDay: Date(),
-        gpsSpoofed: false,
-        sunriseSunsetCheckPassed: false
+        isDaylight: false,
+        recentSteps: 0
     )
 }

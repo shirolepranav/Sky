@@ -14,7 +14,6 @@ struct SettingsView: View {
     @EnvironmentObject private var appearance: AppearanceManager
 
     @State private var store = SharedDefaults()
-    @State private var warning = SharedDefaults().notifWarningEnabled
     @State private var streak  = SharedDefaults().notifStreakEnabled
     @State private var debugEnabled = DebugMenuFlag.isEnabled
     @State private var showPaywall = false
@@ -26,7 +25,6 @@ struct SettingsView: View {
                 appearanceSection
                 pauseSection
                 notificationsSection
-                nightModeSection
                 accountSection
                 subscriptionSection
                 aboutSection
@@ -40,7 +38,6 @@ struct SettingsView: View {
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.large)
             .onAppear { reloadFlags() }
-            .onChange(of: warning) { _, v in store.notifWarningEnabled = v; reschedule() }
             .onChange(of: streak)  { _, v in store.notifStreakEnabled  = v; reschedule() }
             .fullScreenCover(isPresented: $showPaywall) {
                 PaywallView { showPaywall = false }
@@ -53,8 +50,8 @@ struct SettingsView: View {
     // MARK: - Sections
 
     private var appsAndLimitsSection: some View {
-        Section("Apps & Limits") {
-            NavigationLink("Apps & limits") { SettingsAppsAndLimitsView() }
+        Section("Apps & Lock") {
+            NavigationLink("Apps & lock time") { SettingsAppsAndLimitsView() }
         }
     }
 
@@ -89,19 +86,12 @@ struct SettingsView: View {
 
     private var notificationsSection: some View {
         Section("Notifications") {
-            Toggle("30-minute warning", isOn: $warning).tint(SkyColor.mossGreen)
             if storeKit.isPro {
                 Toggle("Streak warning", isOn: $streak).tint(SkyColor.mossGreen)
             } else {
                 Button { showPaywall = true } label: { lockedRow("Streak warning") }
             }
             NavigationLink("All notifications") { NotificationTogglesView() }
-        }
-    }
-
-    private var nightModeSection: some View {
-        Section("Night Mode") {
-            NavigationLink("Allow verification after sunset") { NightModeView() }
         }
     }
 
@@ -157,7 +147,6 @@ struct SettingsView: View {
 
     private func reloadFlags() {
         store = SharedDefaults()
-        warning = store.notifWarningEnabled
         streak = store.notifStreakEnabled
         debugEnabled = DebugMenuFlag.isEnabled
     }

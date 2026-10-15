@@ -1,7 +1,6 @@
 // VerificationDecisionEngineTests.swift
-// Phase 10 automated tests (Roadmap Phase 10 → Automated Tests).
-// Validates VerificationDecisionEngine against all 7 failure reasons, a clean
-// pass, and the altitude-rescues-movement edge case.
+// The three verification checks (DAILY_LOCK_PLAN.md Phase E): GPS, steps, and
+// the daylight-only outdoor scene check — plus their priority order.
 // Pure struct logic — no async, no mocks, no device I/O required.
 
 import XCTest
@@ -15,7 +14,7 @@ import XCTest
 ///
 /// Collapsing to this shadow enum keeps every assertion a one-liner and keeps
 /// the failure output legible, e.g.
-/// `("failure(noSkyVisible)") is not equal to ("success")`.
+/// `("failure(sceneNotOutdoor)") is not equal to ("success")`.
 private enum Outcome: Equatable {
     case success
     case failure(FailureReason)
@@ -32,178 +31,135 @@ final class VerificationDecisionEngineTests: XCTestCase {
 
     private let engine = VerificationDecisionEngine()
 
-    /// Evaluates and collapses to the Equatable `Outcome` in one step.
-    private func outcome(
-        sensor: SensorReading,
-        frame: FrameAnalysisResult,
-        nightModeEnabled: Bool = false
-    ) -> Outcome {
-        Outcome(engine.evaluate(sensor: sensor, frame: frame, nightModeEnabled: nightModeEnabled))
+    private func outcome(sensor: SensorReading, frame: FrameAnalysisResult) -> Outcome {
+        Outcome(engine.evaluate(sensor: sensor, frame: frame))
     }
 
     // MARK: - Success
 
-    func testAllSignalsPass() {
+    func testAllSignalsPassingSucceeds() {
         XCTAssertEqual(outcome(sensor: makeSensor(), frame: makeFrame()), .success)
     }
 
-    // MARK: - Sensor failures (checks 1–5)
+    // MARK: - GPS
 
-    func testGPSSpoofingFails() {
+    func testSpoofedGPSFails() {
         XCTAssertEqual(outcome(sensor: makeSensor(gpsSpoofed: true), frame: makeFrame()),
                        .failure(.gpsSpoofingDetected))
     }
 
-    func testOutsideDaylightWindowFails() {
-        XCTAssertEqual(outcome(sensor: makeSensor(sunriseSunsetCheckPassed: false), frame: makeFrame()),
-                       .failure(.outsideDaylightWindow))
-    }
-
-    func testPoorGPSSignalFails() {
-        // accuracy of 30.0 m exceeds the 25.0 m threshold
-        XCTAssertEqual(outcome(sensor: makeSensor(gpsAccuracyAtBest: 30.0), frame: makeFrame()),
+    func testFuzzyGPSFails() {
+        XCTAssertEqual(outcome(sensor: makeSensor(gpsAccuracyAtBest: 80), frame: makeFrame()),
                        .failure(.poorGPSSignal))
     }
 
-    /// When no location fix ever arrives, `SensorRecorder` reports
-    /// `gpsAccuracyAtBest == .infinity` AND `sunriseSunsetCheckPassed == false` —
-    /// the latter only because the daylight check needs a coordinate it never got.
-    /// The engine must attribute this to GPS, not to darkness; before the check
-    /// reorder this told a user at noon "It's dark out."
-    func testNoGPSFixReportsPoorSignalNotDarkness() {
-        XCTAssertEqual(
-            outcome(sensor: makeSensor(gpsAccuracyAtBest: .infinity,
-                                       sunriseSunsetCheckPassed: false),
-                    frame: makeFrame()),
-            .failure(.poorGPSSignal)
-        )
+    /// Loosened from 25 m: a city street or tree cover often reads 30–40 m outdoors.
+    func testCityStreetAccuracyPasses() {
+        XCTAssertEqual(outcome(sensor: makeSensor(gpsAccuracyAtBest: 40), frame: makeFrame()), .success)
     }
 
-    /// The same no-fix reading with Night Mode on must still blame GPS — night mode
-    /// waives the daylight check, so nothing else would catch a missing fix.
-    func testNoGPSFixReportsPoorSignalUnderNightMode() {
-        XCTAssertEqual(
-            outcome(sensor: makeSensor(gpsAccuracyAtBest: .infinity,
-                                       sunriseSunsetCheckPassed: false),
-                    frame: makeFrame(),
-                    nightModeEnabled: true),
-            .failure(.poorGPSSignal)
-        )
-    }
-
-    /// `SensorReading.unavailable` is the sentinel used on Simulator and in mocks.
-    /// It carries infinite accuracy, so it must read as a GPS failure.
-    func testUnavailableSentinelReportsPoorGPSSignal() {
-        XCTAssertEqual(outcome(sensor: .unavailable, frame: makeFrame()),
+    func testNoFixAtAllFails() {
+        XCTAssertEqual(outcome(sensor: makeSensor(gpsAccuracyAtBest: .infinity), frame: makeFrame()),
                        .failure(.poorGPSSignal))
     }
 
-    func testNotEnoughMovementFails() {
-        // Both speed (0.1) and altitude (0.3) below their respective thresholds
-        XCTAssertEqual(
-            outcome(sensor: makeSensor(maxHorizontalSpeed: 0.1, altitudeChangeMeters: 0.3),
-                    frame: makeFrame()),
-            .failure(.notEnoughMovement)
-        )
+    func testUnavailableSentinelFails() {
+        XCTAssertEqual(outcome(sensor: .unavailable, frame: makeFrame()), .failure(.poorGPSSignal))
     }
 
-    func testMovementFromAltitudeRescues() {
-        // Speed below threshold, but altitude above threshold → should pass movement check
+    // MARK: - Steps
+
+    func testTooFewStepsFails() {
+        XCTAssertEqual(outcome(sensor: makeSensor(recentSteps: 150), frame: makeFrame()),
+                       .failure(.notEnoughSteps))
+    }
+
+    func testExactlyTheMinimumPasses() {
         XCTAssertEqual(
-            outcome(sensor: makeSensor(maxHorizontalSpeed: 0.1, altitudeChangeMeters: 1.0),
-                    frame: makeFrame()),
+            outcome(sensor: makeSensor(recentSteps: VerificationThresholds.minRecentSteps), frame: makeFrame()),
             .success
         )
     }
 
-    func testNotBrightEnoughFails() {
-        // exposure bias of −1.5 is below the −1.0 threshold
-        XCTAssertEqual(outcome(sensor: makeSensor(medianExposureBias: -1.5), frame: makeFrame()),
-                       .failure(.notBrightEnough))
+    /// A device with no step counting can't be held to the check.
+    func testNoStepCountingIsWaived() {
+        XCTAssertEqual(outcome(sensor: makeSensor(recentSteps: nil), frame: makeFrame()), .success)
     }
 
-    // MARK: - Vision failures (checks 6–7)
+    func testDeniedMotionAccessAsksForIt() {
+        XCTAssertEqual(outcome(sensor: makeSensor(recentSteps: 0, motionDenied: true), frame: makeFrame()),
+                       .failure(.motionAccessNeeded))
+    }
 
-    func testSceneNotOutdoorFails() {
-        XCTAssertEqual(outcome(sensor: makeSensor(), frame: makeFrame(outdoorFrameRatio: 0.6)),
+    // MARK: - Outdoor scene
+
+    func testIndoorSceneFailsInDaylight() {
+        XCTAssertEqual(outcome(sensor: makeSensor(), frame: makeFrame(outdoorFrameRatio: 0.3)),
                        .failure(.sceneNotOutdoor))
     }
 
-    func testNoSkyVisibleFails() {
+    func testNoSkyFailsInDaylight() {
         XCTAssertEqual(outcome(sensor: makeSensor(), frame: makeFrame(maxSkyPixelPercent: 0.05)),
-                       .failure(.noSkyVisible))
+                       .failure(.sceneNotOutdoor))
     }
 
-    // MARK: - Night Mode (Phase 15)
-
-    func testNightModeBypassesDaylight() {
-        // Same failing daylight signal passes once Night Mode waives that one check.
-        let sensor = makeSensor(sunriseSunsetCheckPassed: false)
+    /// The fix for the broken night verification: after dusk the camera can't
+    /// see sky, so GPS + steps decide alone.
+    func testSceneIsWaivedAfterDark() {
         XCTAssertEqual(
-            outcome(sensor: sensor, frame: makeFrame(), nightModeEnabled: false),
-            .failure(.outsideDaylightWindow)
-        )
-        XCTAssertEqual(
-            outcome(sensor: sensor, frame: makeFrame(), nightModeEnabled: true),
+            outcome(sensor: makeSensor(isDaylight: false),
+                    frame: makeFrame(outdoorFrameRatio: 0, maxSkyPixelPercent: 0)),
             .success
         )
     }
 
-    func testNightModeDoesNotWaiveOtherChecks() {
-        // Night Mode only affects the daylight check — movement still required.
-        let sensor = makeSensor(
-            maxHorizontalSpeed: 0.1, altitudeChangeMeters: 0.3,
-            sunriseSunsetCheckPassed: false
-        )
-        XCTAssertEqual(
-            outcome(sensor: sensor, frame: makeFrame(), nightModeEnabled: true),
-            .failure(.notEnoughMovement)
-        )
+    func testNightStillNeedsStepsAndGPS() {
+        XCTAssertEqual(outcome(sensor: makeSensor(isDaylight: false, recentSteps: 10), frame: makeFrame()),
+                       .failure(.notEnoughSteps))
+        XCTAssertEqual(outcome(sensor: makeSensor(gpsAccuracyAtBest: 90, isDaylight: false), frame: makeFrame()),
+                       .failure(.poorGPSSignal))
     }
 
     // MARK: - Priority ordering
 
     func testGPSSpoofingBeatsAllOtherFailures() {
-        // Even if every other signal fails, spoofing is reported first.
         XCTAssertEqual(
-            outcome(
-                sensor: makeSensor(
-                    gpsAccuracyAtBest: 100,
-                    maxHorizontalSpeed: 0,
-                    altitudeChangeMeters: 0,
-                    medianExposureBias: -2.0,
-                    gpsSpoofed: true,
-                    sunriseSunsetCheckPassed: false
-                ),
-                frame: makeFrame(outdoorFrameRatio: 0, maxSkyPixelPercent: 0)
-            ),
+            outcome(sensor: makeSensor(gpsAccuracyAtBest: 100, gpsSpoofed: true, recentSteps: 0),
+                    frame: makeFrame(outdoorFrameRatio: 0, maxSkyPixelPercent: 0)),
             .failure(.gpsSpoofingDetected)
         )
     }
 
+    func testGPSBeatsSteps() {
+        XCTAssertEqual(outcome(sensor: makeSensor(gpsAccuracyAtBest: 100, recentSteps: 0), frame: makeFrame()),
+                       .failure(.poorGPSSignal))
+    }
+
+    func testStepsBeatScene() {
+        XCTAssertEqual(outcome(sensor: makeSensor(recentSteps: 0), frame: makeFrame(outdoorFrameRatio: 0)),
+                       .failure(.notEnoughSteps))
+    }
+
     // MARK: - Factory helpers
 
-    /// Returns an all-passing SensorReading with named overrides.
+    /// An all-passing SensorReading with named overrides.
     private func makeSensor(
         gpsAccuracyAtBest: Double = 8.0,
-        maxHorizontalSpeed: Double = 1.2,
-        altitudeChangeMeters: Double = 1.5,
-        medianExposureBias: Float = 0.2,
         gpsSpoofed: Bool = false,
-        sunriseSunsetCheckPassed: Bool = true
+        isDaylight: Bool = true,
+        recentSteps: Int? = 450,
+        motionDenied: Bool = false
     ) -> SensorReading {
         SensorReading(
             gpsAccuracyAtBest: gpsAccuracyAtBest,
-            maxHorizontalSpeed: maxHorizontalSpeed,
-            altitudeChangeMeters: altitudeChangeMeters,
-            medianExposureBias: medianExposureBias,
-            timeOfDay: Date(),
             gpsSpoofed: gpsSpoofed,
-            sunriseSunsetCheckPassed: sunriseSunsetCheckPassed
+            isDaylight: isDaylight,
+            recentSteps: recentSteps,
+            motionDenied: motionDenied
         )
     }
 
-    /// Returns an all-passing FrameAnalysisResult with named overrides.
+    /// An all-passing FrameAnalysisResult with named overrides.
     private func makeFrame(
         outdoorFrameRatio: Double = 0.92,
         maxSkyPixelPercent: Double = 0.22
@@ -211,7 +167,7 @@ final class VerificationDecisionEngineTests: XCTestCase {
         FrameAnalysisResult(
             outdoorFrameRatio: outdoorFrameRatio,
             maxSkyPixelPercent: maxSkyPixelPercent,
-            analyzedFrameCount: 180
+            analyzedFrameCount: 30
         )
     }
 }

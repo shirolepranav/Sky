@@ -31,13 +31,13 @@ final class ShieldAuditTests: XCTestCase {
     /// Anything else must be readable back identically.
     func testRecordRoundTrips() {
         let now = Date(timeIntervalSince1970: 1_786_104_000)
-        ShieldAudit.record(.applied, source: .monitorThreshold, appCount: 3,
+        ShieldAudit.record(.applied, source: .monitorLock, appCount: 3,
                            now: now, defaults: defaults)
 
         let entries = ShieldAudit.entries(defaults: defaults)
         XCTAssertEqual(entries.count, 1)
         XCTAssertEqual(entries[0].action, "applied")
-        XCTAssertEqual(entries[0].source, "monitor.threshold")
+        XCTAssertEqual(entries[0].source, "monitor.lock")
         XCTAssertEqual(entries[0].appCount, 3)
         XCTAssertEqual(entries[0].date.timeIntervalSince1970, 1_786_104_000, accuracy: 1)
     }
@@ -45,21 +45,20 @@ final class ShieldAuditTests: XCTestCase {
     /// A hand-written line in the extension's exact format must parse. This is
     /// the mirrored-code check — if it fails, the two sides have drifted.
     func testExtensionFormatIsReadable() {
-        defaults.set(["1786104000|cleared|monitor.intervalStart|0"], forKey: ShieldAudit.key)
+        defaults.set(["1786104000|skipped|monitor.lock|0"], forKey: ShieldAudit.key)
 
         let entries = ShieldAudit.entries(defaults: defaults)
         XCTAssertEqual(entries.count, 1)
-        XCTAssertEqual(entries[0].action, "cleared")
-        XCTAssertEqual(entries[0].source, "monitor.intervalStart")
+        XCTAssertEqual(entries[0].action, ShieldAudit.Action.skipped.rawValue)
+        XCTAssertEqual(entries[0].source, ShieldAudit.Source.monitorLock.rawValue)
     }
 
     /// No enum case may contain the separator, or its line splits into the wrong
     /// number of fields and is dropped on read.
     func testNoSourceContainsTheSeparator() {
         let sources: [ShieldAudit.Source] = [
-            .monitorThreshold, .monitorIntervalStart, .verificationSuccess,
-            .emergency, .pause, .midnightRecovery, .reconcile, .debug,
-            .notifWarning, .notifBlockStart,
+            .monitorLock, .lockCatchUp, .verificationSuccess,
+            .emergency, .pause, .reconcile, .debug, .notifLock,
         ]
         for source in sources {
             XCTAssertFalse(
@@ -93,7 +92,7 @@ final class ShieldAuditTests: XCTestCase {
     /// The debug menu reads newest-first.
     func testFormattedLinesAreNewestFirst() {
         let early = Date(timeIntervalSince1970: 1_786_104_000)
-        ShieldAudit.record(.applied, source: .monitorThreshold, appCount: 1,
+        ShieldAudit.record(.applied, source: .monitorLock, appCount: 1,
                            now: early, defaults: defaults)
         ShieldAudit.record(.cleared, source: .verificationSuccess, appCount: 0,
                            now: early.addingTimeInterval(60), defaults: defaults)
@@ -101,7 +100,7 @@ final class ShieldAuditTests: XCTestCase {
         let lines = ShieldAudit.formattedLines(defaults: defaults)
         XCTAssertEqual(lines.count, 2)
         XCTAssertTrue(lines[0].contains("verification.success"))
-        XCTAssertTrue(lines[1].contains("monitor.threshold"))
+        XCTAssertTrue(lines[1].contains("monitor.lock"))
     }
 
     // MARK: - Notification entries
@@ -111,29 +110,21 @@ final class ShieldAuditTests: XCTestCase {
     /// is what answers "why did Sky buzz me when I hadn't opened anything?".
     func testNotificationLinesFilterOutShieldWrites() {
         let base = Date(timeIntervalSince1970: 1_786_104_000)
-        ShieldAudit.record(.applied, source: .monitorThreshold, appCount: 4,
+        ShieldAudit.record(.applied, source: .monitorLock, appCount: 4,
                            now: base, defaults: defaults)
-        ShieldAudit.record(.notified, source: .notifBlockStart, appCount: 0,
+        ShieldAudit.record(.notified, source: .notifLock, appCount: 0,
                            now: base.addingTimeInterval(1), defaults: defaults)
-        ShieldAudit.record(.suppressed, source: .notifWarning, appCount: 0,
+        ShieldAudit.record(.skipped, source: .monitorLock, appCount: 0,
                            now: base.addingTimeInterval(2), defaults: defaults)
 
         let lines = ShieldAudit.notificationLines(defaults: defaults)
-        XCTAssertEqual(lines.count, 2, "shield writes must not appear here")
-        XCTAssertTrue(lines[0].contains("suppressed"), "newest first")
-        XCTAssertTrue(lines[0].contains("notif.warning"))
-        XCTAssertTrue(lines[1].contains("notified"))
-        XCTAssertTrue(lines[1].contains("notif.blockStart"))
+        XCTAssertEqual(lines.count, 1, "shield writes and skips must not appear here")
+        XCTAssertTrue(lines[0].contains("notif.lock"))
     }
 
-    /// Both new actions round-trip through the same `|`-separated line format the
-    /// extension writes by hand.
-    func testNotificationActionsRoundTrip() {
-        ShieldAudit.record(.notified, source: .notifWarning, appCount: 0,
-                           now: Date(), defaults: defaults)
-
-        let entry = ShieldAudit.entries(defaults: defaults).first
-        XCTAssertEqual(entry?.action, "notified")
-        XCTAssertEqual(entry?.source, "notif.warning")
+    /// The extension writes "notif.lock" by hand — it must match the enum.
+    func testExtensionNotificationSourceMatches() {
+        XCTAssertEqual(ShieldAudit.Source.notifLock.rawValue, "notif.lock")
+        XCTAssertEqual(ShieldAudit.Source.monitorLock.rawValue, "monitor.lock")
     }
 }

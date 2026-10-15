@@ -1,9 +1,10 @@
 // MidnightResetRecoveryTests.swift
 // Covers the app-side safety net for a missed midnight reset (J-06).
 //
-// The stakes are asymmetric: failing to recover leaves the user shielded past
-// midnight, but recovering when it wasn't needed hands StreakManager a bogus
-// "yesterday" and zeroes a live streak. Both directions are pinned here.
+// The stakes are asymmetric: failing to recover lets yesterday's verification
+// skip today's lock, but recovering when it wasn't needed hands StreakManager a
+// bogus "yesterday" and zeroes a live streak. Both directions are pinned here.
+// The reset never touches the shield (DAILY_LOCK_PLAN.md) — also pinned.
 
 import XCTest
 @testable import Sky
@@ -64,12 +65,10 @@ final class MidnightResetRecoveryTests: XCTestCase {
         store.didVerifyToday = true
         store.isCurrentlyBlocked = true
 
-        var cleared = false
         let outcome = MidnightResetRecovery.runIfNeeded(
-            store: store, now: noon, clearShields: { cleared = true })
+            store: store, now: noon)
 
         XCTAssertEqual(outcome, .upToDate)
-        XCTAssertFalse(cleared)
         XCTAssertTrue(store.didVerifyToday, "today's state must survive")
         XCTAssertTrue(store.isCurrentlyBlocked)
         XCTAssertFalse(store.pendingMidnightReset, "no hand-off — would zero the streak")
@@ -78,30 +77,25 @@ final class MidnightResetRecoveryTests: XCTestCase {
     /// Fresh install: adopt the stamp but never invent a yesterday, or the first
     /// launch after restoring a backup would break the restored streak.
     func testFirstRunAdoptsStampWithoutStreakHandoff() {
-        var cleared = false
         let outcome = MidnightResetRecovery.runIfNeeded(
-            store: store, now: noon, clearShields: { cleared = true })
+            store: store, now: noon)
 
         XCTAssertEqual(outcome, .adoptedFirstStamp)
         XCTAssertEqual(store.todayResetToken, stamp(noon))
-        XCTAssertFalse(cleared)
         XCTAssertFalse(store.pendingMidnightReset)
     }
 
-    /// The bug this exists for: extension missed midnight, so the user is still
-    /// shielded. Recovery must clear the shield and today's flags.
-    func testStaleStampRunsTheResetAndUnshields() {
+    /// Extension missed midnight: recovery runs the reset — but an unverified day
+    /// stays locked through it.
+    func testStaleStampRunsTheResetAndKeepsTheLock() {
         store.todayResetToken = "2026-08-01"
         store.isCurrentlyBlocked = true
         store.didVerifyToday = false
 
-        var cleared = false
-        let outcome = MidnightResetRecovery.runIfNeeded(
-            store: store, now: noon, clearShields: { cleared = true })
+        let outcome = MidnightResetRecovery.runIfNeeded(store: store, now: noon)
 
         XCTAssertEqual(outcome, .recovered)
-        XCTAssertTrue(cleared, "user would stay shielded past midnight")
-        XCTAssertFalse(store.isCurrentlyBlocked)
+        XCTAssertTrue(store.isCurrentlyBlocked, "midnight must never open the apps")
         XCTAssertEqual(store.todayResetToken, stamp(noon))
     }
 
@@ -111,7 +105,7 @@ final class MidnightResetRecoveryTests: XCTestCase {
         store.todayResetToken = "2026-08-05"
         store.didVerifyToday = true
 
-        MidnightResetRecovery.runIfNeeded(store: store, now: noon, clearShields: {})
+        MidnightResetRecovery.runIfNeeded(store: store, now: noon)
 
         XCTAssertFalse(store.didVerifyToday)
         XCTAssertFalse(store.didEmergencyUnlockToday)
@@ -124,7 +118,7 @@ final class MidnightResetRecoveryTests: XCTestCase {
         store.didVerifyToday = true
         store.didEmergencyUnlockToday = false
 
-        MidnightResetRecovery.runIfNeeded(store: store, now: noon, clearShields: {})
+        MidnightResetRecovery.runIfNeeded(store: store, now: noon)
 
         XCTAssertTrue(store.pendingMidnightReset)
         XCTAssertTrue(store.yesterdayDidVerify, "a kept streak would be wrongly broken")
@@ -136,7 +130,7 @@ final class MidnightResetRecoveryTests: XCTestCase {
         store.todayResetToken = "2026-08-05"
         store.didEmergencyUnlockToday = true
 
-        MidnightResetRecovery.runIfNeeded(store: store, now: noon, clearShields: {})
+        MidnightResetRecovery.runIfNeeded(store: store, now: noon)
 
         XCTAssertTrue(store.yesterdayDidEmergency)
         XCTAssertFalse(store.yesterdayDidVerify)
@@ -148,12 +142,12 @@ final class MidnightResetRecoveryTests: XCTestCase {
         store.todayResetToken = "2026-08-05"
         store.didVerifyToday = true
 
-        MidnightResetRecovery.runIfNeeded(store: store, now: noon, clearShields: {})
+        MidnightResetRecovery.runIfNeeded(store: store, now: noon)
         store.pendingMidnightReset = false      // simulate StreakManager consuming it
         store.yesterdayDidVerify = false
 
         let second = MidnightResetRecovery.runIfNeeded(
-            store: store, now: noon, clearShields: {})
+            store: store, now: noon)
 
         XCTAssertEqual(second, .upToDate)
         XCTAssertFalse(store.pendingMidnightReset, "a second hand-off would zero the streak")
@@ -166,7 +160,7 @@ final class MidnightResetRecoveryTests: XCTestCase {
         store.didVerifyToday = false
 
         let outcome = MidnightResetRecovery.runIfNeeded(
-            store: store, now: noon, clearShields: {})
+            store: store, now: noon)
 
         XCTAssertEqual(outcome, .recovered)
         XCTAssertTrue(store.pendingMidnightReset)
@@ -184,12 +178,10 @@ final class MidnightResetRecoveryTests: XCTestCase {
         store.todayStateDay = stamp(noon)             // but the block is today's
         store.isCurrentlyBlocked = true
 
-        var cleared = false
         let outcome = MidnightResetRecovery.runIfNeeded(
-            store: store, now: noon, clearShields: { cleared = true })
+            store: store, now: noon)
 
         XCTAssertEqual(outcome, .stampOnly)
-        XCTAssertFalse(cleared, "a late reset must never lift a live shield")
         XCTAssertTrue(store.isCurrentlyBlocked)
         XCTAssertEqual(store.todayResetToken, stamp(noon), "stamps must still converge")
         XCTAssertFalse(store.pendingMidnightReset, "no day boundary was crossed here")
@@ -202,25 +194,24 @@ final class MidnightResetRecoveryTests: XCTestCase {
         store.todayStateDay = stamp(noon)
         store.didVerifyToday = true
 
-        MidnightResetRecovery.runIfNeeded(store: store, now: noon, clearShields: {})
+        MidnightResetRecovery.runIfNeeded(store: store, now: noon)
 
         XCTAssertTrue(store.didVerifyToday)
     }
 
     /// The guard must not swallow a genuine day rollover: state stamped yesterday
-    /// still gets cleared.
+    /// still gets reset (the lock itself stays).
     func testStateStampedYesterdayStillTriggersFullReset() {
         store.todayResetToken = "2026-08-06"
         store.todayStateDay = "2026-08-06"
         store.isCurrentlyBlocked = true
+        store.didVerifyToday = true
 
-        var cleared = false
-        let outcome = MidnightResetRecovery.runIfNeeded(
-            store: store, now: noon, clearShields: { cleared = true })
+        let outcome = MidnightResetRecovery.runIfNeeded(store: store, now: noon)
 
         XCTAssertEqual(outcome, .recovered)
-        XCTAssertTrue(cleared)
-        XCTAssertFalse(store.isCurrentlyBlocked)
+        XCTAssertFalse(store.didVerifyToday)
+        XCTAssertTrue(store.isCurrentlyBlocked)
         XCTAssertEqual(store.todayStateDay, stamp(noon), "cleared flags now describe today")
     }
 
@@ -230,12 +221,10 @@ final class MidnightResetRecoveryTests: XCTestCase {
         store.todayResetToken = "2026-09-01"
         store.isCurrentlyBlocked = true
 
-        var cleared = false
         let outcome = MidnightResetRecovery.runIfNeeded(
-            store: store, now: noon, clearShields: { cleared = true })
+            store: store, now: noon)
 
         XCTAssertEqual(outcome, .adoptedFutureStamp)
-        XCTAssertFalse(cleared, "going back in time must not open the apps")
         XCTAssertTrue(store.isCurrentlyBlocked)
         XCTAssertEqual(store.todayResetToken, stamp(noon))
     }
@@ -277,7 +266,7 @@ final class MidnightResetRecoveryTests: XCTestCase {
         store.stampTodayState(now: noon)
 
         let outcome = MidnightResetRecovery.runIfNeeded(
-            store: store, now: noon, clearShields: {})
+            store: store, now: noon)
 
         XCTAssertEqual(outcome, .stampOnly)
         XCTAssertFalse(
@@ -302,24 +291,5 @@ final class MidnightResetRecoveryTests: XCTestCase {
             store.pendingMidnightReset,
             "a second roll-over must not hand off an already-cleared day and zero a live streak"
         )
-    }
-
-    // MARK: Notification budget
-
-    /// The per-day notification caps are day-stamped, so the reset has to re-open
-    /// them or the new day's first genuine threshold event stays silent.
-    func testResetReopensTheNotificationBudget() {
-        let yesterday = noon.addingTimeInterval(-24 * 60 * 60)
-        store.todayResetToken = stamp(yesterday)
-        store.todayStateDay = stamp(yesterday)
-        store.notifWarningDay = stamp(yesterday)
-        store.notifBlockStartDay = stamp(yesterday)
-
-        let outcome = MidnightResetRecovery.runIfNeeded(
-            store: store, now: noon, clearShields: {})
-
-        XCTAssertEqual(outcome, .recovered)
-        XCTAssertEqual(store.notifWarningDay, "")
-        XCTAssertEqual(store.notifBlockStartDay, "")
     }
 }

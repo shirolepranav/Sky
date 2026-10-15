@@ -1,7 +1,6 @@
 // LimitConfigurationViewModelTests.swift
-// Phase 4 automated tests (Roadmap Phase 4 → Automated Tests). Verifies limit
-// persistence, mode-switching value preservation, and the 15–240 minute clamp.
-// Uses an isolated UserDefaults suite so tests never touch the App Group.
+// Lock-time screen (S-CFG-03; DAILY_LOCK_PLAN.md Phase D): persistence, the lock
+// days Pro gate, and the option range. Isolated UserDefaults suite.
 
 import XCTest
 @testable import Sky
@@ -21,82 +20,61 @@ final class LimitConfigurationViewModelTests: XCTestCase {
 
     override func tearDown() {
         defaults.removePersistentDomain(forName: suiteName)
-        defaults = nil
-        store = nil
         super.tearDown()
     }
 
-    // MARK: testCombinedLimitPersists
-
-    /// Setting combined mode and 1 h limit, then saving, should round-trip through
-    /// SharedDefaults so a freshly-created ViewModel reads the same values back.
-    func testCombinedLimitPersists() {
+    func testDefaultsToNineEveryDay() {
         let vm = LimitConfigurationViewModel(store: store)
-        vm.limitMode = .combined
-        vm.combinedLimitSeconds = 3600
+        XCTAssertEqual(vm.lockTimeMinutes, 540)
+        XCTAssertEqual(vm.lockWeekdays, Set(1...7))
+    }
+
+    func testLockTimePersists() {
+        let vm = LimitConfigurationViewModel(store: store)
+        vm.lockTimeMinutes = 7 * 60 + 30
         vm.save()
-
-        let restored = LimitConfigurationViewModel(store: store)
-        XCTAssertEqual(restored.limitMode, .combined)
-        XCTAssertEqual(restored.combinedLimitSeconds, 3600)
+        XCTAssertEqual(LimitConfigurationViewModel(store: store).lockTimeMinutes, 450)
     }
 
-    // MARK: testPerAppLimitsPersist
-
-    /// Switching to per-app mode and saving should persist the mode flag; the
-    /// per-app minutes map (empty here — no apps in the test store) round-trips
-    /// cleanly without crash or data loss.
-    func testPerAppLimitsPersist() {
+    func testLockTimeIsClampedToTheLatestLegalTime() {
         let vm = LimitConfigurationViewModel(store: store)
-        vm.limitMode = .perApp
+        vm.lockTimeMinutes = 23 * 60 + 50
         vm.save()
-
-        let restored = LimitConfigurationViewModel(store: store)
-        XCTAssertEqual(restored.limitMode, .perApp)
-        // No app tokens in the isolated store, so perAppMinutes stays empty.
-        XCTAssertTrue(restored.perAppMinutes.isEmpty)
+        XCTAssertEqual(store.lockTimeMinutes, DeviceActivityService.latestLockTimeMinutes)
     }
 
-    // MARK: testSwitchingModesPreservesPreviousValues
-
-    /// Toggling between modes must not wipe the other mode's values — the spec
-    /// says "switching modes preserves previously entered values" (S-CFG-03).
-    func testSwitchingModesPreservesPreviousValues() {
-        let vm = LimitConfigurationViewModel(store: store)
-
-        // Set a non-default combined limit, then switch to per-app and back.
-        vm.combinedLimitSeconds = 3600
-        vm.limitMode = .perApp
-        vm.limitMode = .combined
-        XCTAssertEqual(vm.combinedLimitSeconds, 3600,
-                       "Combined limit should survive a round-trip through per-app mode")
-
-        // Switch to per-app and then back to combined — combined still intact.
-        vm.limitMode = .perApp
-        vm.limitMode = .combined
-        XCTAssertEqual(vm.combinedLimitSeconds, 3600)
+    func testOptionsStayInsideTheLegalRange() {
+        let options = LimitConfigurationViewModel.lockTimeOptions
+        XCTAssertTrue(options.contains(540), "the default must be selectable")
+        XCTAssertLessThanOrEqual(options.max()!, DeviceActivityService.latestLockTimeMinutes)
     }
 
-    // MARK: testMinimumLimitIs15Minutes
-
-    /// The clamping helper enforces 15 minutes as the floor — mirrors what the
-    /// Stepper's `in: 15...240` range enforces at the UI level.
-    func testMinimumLimitIs15Minutes() {
-        let vm = LimitConfigurationViewModel(store: store)
-        XCTAssertEqual(vm.clampedMinutes(0),   15)
-        XCTAssertEqual(vm.clampedMinutes(-60), 15)
-        XCTAssertEqual(vm.clampedMinutes(14),  15)
-        XCTAssertEqual(vm.clampedMinutes(15),  15) // exact boundary
+    func testOrderedWeekdaysCoverTheWeek() {
+        XCTAssertEqual(Set(LimitConfigurationViewModel.orderedWeekdays), Set(1...7))
     }
 
-    // MARK: testMaximumLimitIs4Hours
+    // MARK: Lock days (Pro)
 
-    /// The clamping helper enforces 240 minutes (4 hours) as the ceiling.
-    func testMaximumLimitIs4Hours() {
+    func testFreeUserHitsTheGateAndNothingChanges() {
         let vm = LimitConfigurationViewModel(store: store)
-        XCTAssertEqual(vm.clampedMinutes(500), 240)
-        XCTAssertEqual(vm.clampedMinutes(241), 240)
-        XCTAssertEqual(vm.clampedMinutes(240), 240) // exact boundary
-        XCTAssertEqual(vm.clampedMinutes(239), 239) // just inside
+        vm.toggleWeekday(1, isPro: false)
+        XCTAssertTrue(vm.showsLockDaysProGate)
+        XCTAssertEqual(vm.lockWeekdays, Set(1...7))
+    }
+
+    func testProUserCanTakeWeekendsOffAndItPersists() {
+        let vm = LimitConfigurationViewModel(store: store)
+        vm.toggleWeekday(1, isPro: true)
+        vm.toggleWeekday(7, isPro: true)
+        vm.save()
+        XCTAssertEqual(store.lockWeekdays, Set(2...6))
+        XCTAssertFalse(vm.showsLockDaysProGate)
+    }
+
+    func testCannotSwitchOffTheLastDay() {
+        let vm = LimitConfigurationViewModel(store: store)
+        for day in 1...6 { vm.toggleWeekday(day, isPro: true) }
+        vm.toggleWeekday(7, isPro: true)
+        XCTAssertEqual(vm.lockWeekdays, [7])
     }
 }

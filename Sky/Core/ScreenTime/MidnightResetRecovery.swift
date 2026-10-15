@@ -2,12 +2,15 @@
 // App-side safety net for the daily midnight reset (Sky_App_Workflow.md J-06;
 // Technical Spec §7.4).
 //
-// `SkyDeviceActivityMonitor.intervalDidStart` normally performs the reset at
-// 00:00. DeviceActivity callbacks are not guaranteed — the device can be off,
-// monitoring can be torn down, and the callback is historically flaky — and when
-// it is missed nothing else clears the day's flags. The user then stays shielded
-// past midnight with no route back except verifying again, or `didVerifyToday`
-// survives into the next day and leaves the apps open.
+// `SkyDeviceActivityMonitor.intervalDidStart(.daily)` normally performs the reset
+// at 00:00. DeviceActivity callbacks are not guaranteed — the device can be off,
+// monitoring can be torn down — and when it is missed nothing else clears the
+// day's flags, so `didVerifyToday` would survive into the next day and skip its
+// morning lock.
+//
+// ⚠️ The reset never touches the shield or `isCurrentlyBlocked` (DAILY_LOCK_PLAN.md).
+// An unverified day stays locked through midnight until the user goes outside;
+// only verification, emergency unlock and pause open the apps.
 //
 // `todayResetToken` already existed for exactly this purpose ("invalidates stale
 // cached state") but nothing ever read it. This is the reader.
@@ -22,8 +25,8 @@
 // ⚠️ This runs on every foreground, so it is *late* by definition — anywhere from
 // a second to a day after the midnight it stands in for. It must therefore never
 // clear state that belongs to the current day. `todayStateDay` is the guard: see
-// the `.stampOnly` branch. Getting this wrong lifts a live shield, which is the
-// one failure this app cannot have.
+// the `.stampOnly` branch. Getting this wrong forgets a verification made today,
+// which would let the next lock land on someone who already went outside.
 
 import Foundation
 
@@ -91,14 +94,11 @@ enum MidnightResetRecovery {
     /// Must be called *before* `StreakManager.refreshOnForeground()` so the
     /// hand-off it writes is consumed in the same foreground pass, and before
     /// anything reads today's flags.
-    ///
-    /// - Parameter clearShields: injected so tests don't touch ManagedSettings.
     @discardableResult
     static func runIfNeeded(
         store: SharedDefaults = SharedDefaults(),
         now: Date = Date(),
-        timeZone: TimeZone = .current,
-        clearShields: () -> Void = { ShieldService.unlockApps(source: .midnightRecovery) }
+        timeZone: TimeZone = .current
     ) -> Outcome {
         let today = dayStamp(for: now, timeZone: timeZone)
         let stored = store.todayResetToken
@@ -125,11 +125,9 @@ enum MidnightResetRecovery {
         // monitor extension stamps it when it shields, verification and emergency
         // unlock stamp it when they open the apps back up.
         //
-        // If it already says today, the extension has moved the day on and this
-        // state was written after midnight. Clearing it here would undo a block
-        // that landed minutes ago — the bug where tapping "Go outside to unlock"
-        // opened the apps, because that tap is what brings Sky to the foreground.
-        // Advance the stamp so the two sides agree, and leave everything else be.
+        // If it already says today, this state was written after midnight —
+        // clearing it would forget a verification made this morning. Advance the
+        // stamp so the two sides agree, and leave everything else be.
         if store.todayStateDay == today {
             store.todayResetToken = today
             return .stampOnly
@@ -141,20 +139,9 @@ enum MidnightResetRecovery {
         store.yesterdayDidEmergency = store.didEmergencyUnlockToday
         store.pendingMidnightReset = true
 
-        clearShields()
-
-        store.isCurrentlyBlocked = false
+        // The shield and `isCurrentlyBlocked` are deliberately left alone.
         store.didVerifyToday = false
         store.didEmergencyUnlockToday = false
-
-        // Re-open the notification budget (mirrors the extension).
-        store.notifWarningDay = ""
-        store.notifBlockStartDay = ""
-
-        // Back to the bottom of the session ladder. Leaving yesterday's
-        // high-water mark in place would make every one of today's rungs look
-        // like a replay, and the user would never be blocked again.
-        store.lastFiredRungs = nil
 
         store.todayStateDay = today
         store.todayResetToken = today
@@ -166,7 +153,7 @@ enum MidnightResetRecovery {
     ///
     /// Call this immediately before setting `isCurrentlyBlocked` / `didVerifyToday`
     /// / `didEmergencyUnlockToday` and stamping `todayStateDay`. It mirrors what
-    /// `SkyDeviceActivityMonitor.eventDidReachThreshold` does at its top, and for
+    /// `SkyDeviceActivityMonitor.applyLock` does at its top, and for
     /// the same reason: writing today's state while `todayResetToken` still holds
     /// yesterday strands the recovery in `.stampOnly`, where it can no longer tell
     /// yesterday's flags from today's and so never evaluates the previous day at

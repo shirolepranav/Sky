@@ -1,5 +1,8 @@
 # Implementation Plan — "Time left today" on the Today screen
 
+> **Superseded 2026-10-14** by `DAILY_LOCK_PLAN.md`. Sky no longer counts usage or offers Night Mode; kept for history only.
+
+
 **Status:** proposed, not started
 **Screens:** `S-TODAY-01`, `S-TODAY-02`
 **Touches:** `DeviceActivityService`, `SkyDeviceActivityMonitor`, `SharedDefaults`, `TodayView`

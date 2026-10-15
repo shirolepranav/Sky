@@ -30,10 +30,10 @@ struct SharedDefaults {
     // MARK: Keys
     private enum Key {
         static let selection = "selection"
-        static let limitMode = "limitMode"
-        static let combinedLimitSeconds = "combinedLimitSeconds"
-        static let perAppLimits = "perAppLimits"
-        static let limitsEnabled = "limitsEnabled"
+        static let lockTimeMinutes = "lock_time_minutes"
+        static let lockWeekdays = "lock_weekdays"
+        static let lockArmedAt = "lock_armed_at"
+        static let lockSkipDay = "lock_skip_day"
         static let isCurrentlyBlocked = "today_blocked"
         static let didVerifyToday = "today_verified"
         static let didEmergencyUnlockToday = "today_emergency_used"
@@ -42,34 +42,21 @@ struct SharedDefaults {
         /// reset tell "these flags are yesterday's" from "these flags were written
         /// today, after midnight" — see MidnightResetRecovery.
         static let todayStateDay = "today_state_day"
-        /// The application tokens actually shielded right now, so the app can
-        /// re-apply exactly that set without re-shielding the whole selection.
-        static let shieldedAppTokens = "shielded_app_tokens"
         static let verificationCompletedAt = "verification_completed_at"
         static let pendingDeepLink = "pending_deep_link"
         // Phase 12 — midnight-reset hand-off from DeviceActivityMonitor extension
         static let pendingMidnightReset = "streak_pending_midnight_reset"
         static let yesterdayDidVerify = "streak_yesterday_verified"
         static let yesterdayDidEmergency = "streak_yesterday_emergency"
-        // Phase 15 — notification preferences, Night Mode, Pause, one-time primer
+        // Phase 15 — notification preferences, Pause, one-time primer
         // (`notif_morning_enabled` retired — the 8:30 morning nudge was removed.)
-        static let notifWarningEnabled = "notif_warning_enabled"
         static let notifStreakEnabled = "notif_streak_enabled"
-        /// `yyyy-MM-dd` of the last day each usage notification was posted. Written
-        /// by the monitor extension; the only thing that stops iOS re-firing an
-        /// already-crossed threshold from posting a duplicate.
-        static let notifWarningDay = "notif_warning_day"
-        static let notifBlockStartDay = "notif_blockstart_day"
-        /// JSON `[String: Int]` — the highest session-ladder rung acted on today,
-        /// keyed by "" (combined) or the app's base64 token (per-app).
-        static let lastFiredRungs = "last_fired_rungs"
-        static let nightModeEnabled = "night_mode_enabled"
         static let pauseStartedAt = "pause_started_at"
         static let lastPauseDate = "last_pause_date"
         static let notificationPrimerShown = "notif_primer_shown"
         // Phase 16 — appearance (light/dark/system) preference
         static let appearanceMode = "appearance_mode"
-        // Re-arm guard for DeviceActivity monitoring (TIME_REMAINING_PLAN.md §2)
+        // Re-arm guard for DeviceActivity monitoring
         static let monitoringConfigFingerprint = "monitoring_config_fingerprint"
         // iOS major version in force when the selection was last chosen. Detects the
         // silently-reissued-ApplicationToken case — see `selectionNeedsRedo`.
@@ -85,38 +72,48 @@ struct SharedDefaults {
         nonmutating set { defaults.set(newValue, forKey: Key.selection) }
     }
 
-    var limitMode: String {
-        get { defaults.string(forKey: Key.limitMode) ?? "combined" }
-        nonmutating set { defaults.set(newValue, forKey: Key.limitMode) }
+    /// Minutes after local midnight at which the selected apps lock each day
+    /// (DAILY_LOCK_PLAN.md). Default 9:00 AM. Read by the monitor extension.
+    var lockTimeMinutes: Int {
+        get { defaults.object(forKey: Key.lockTimeMinutes) as? Int ?? 540 }
+        nonmutating set { defaults.set(newValue, forKey: Key.lockTimeMinutes) }
     }
 
-    var combinedLimitSeconds: Int {
-        get { defaults.object(forKey: Key.combinedLimitSeconds) as? Int ?? 7200 }
-        nonmutating set { defaults.set(newValue, forKey: Key.combinedLimitSeconds) }
+    /// `Calendar` weekdays (1 = Sunday … 7 = Saturday) on which the lock applies.
+    /// Default every day; choosing fewer is a Pro feature. Read by the extension.
+    var lockWeekdays: Set<Int> {
+        get { Set(defaults.array(forKey: Key.lockWeekdays) as? [Int] ?? Array(1...7)) }
+        nonmutating set { defaults.set(newValue.sorted(), forKey: Key.lockWeekdays) }
     }
 
-    var perAppLimitsData: Data? {
-        get { defaults.data(forKey: Key.perAppLimits) }
-        nonmutating set { defaults.set(newValue, forKey: Key.perAppLimits) }
-    }
-
-    /// `combinedLimitSeconds` as user-facing copy — "2 hours", "45 minutes".
+    /// When the lock schedule was last registered with DeviceActivityCenter.
     ///
-    /// One place, because the same phrase appears on S-VER-06, S-TODAY-01 and
-    /// S-CFG-03, and they have to agree about what a session actually buys.
-    var sessionLengthLabel: String {
-        let seconds = combinedLimitSeconds
-        if seconds % 3600 == 0 {
-            let hours = seconds / 3600
-            return hours == 1 ? "1 hour" : "\(hours) hours"
-        }
-        let minutes = max(1, seconds / 60)
-        return minutes == 1 ? "1 minute" : "\(minutes) minutes"
+    /// iOS calls `intervalDidStart` straight away when a schedule is registered
+    /// inside its interval. The extension ignores a start this close to a
+    /// registration (`LockPolicy.armGraceSeconds`); the app-side catch-up decides
+    /// instead. nil means monitoring was never armed — setup isn't finished.
+    var lockArmedAt: Date? {
+        get { defaults.object(forKey: Key.lockArmedAt) as? Date }
+        nonmutating set { defaults.set(newValue, forKey: Key.lockArmedAt) }
     }
 
-    var limitsEnabled: Bool {
-        get { defaults.object(forKey: Key.limitsEnabled) as? Bool ?? true }
-        nonmutating set { defaults.set(newValue, forKey: Key.limitsEnabled) }
+    /// `yyyy-MM-dd` of a day whose lock is waived because setup finished after
+    /// that day's lock time, or "" if none. Read by the extension.
+    var lockSkipDay: String {
+        get { defaults.string(forKey: Key.lockSkipDay) ?? "" }
+        nonmutating set { defaults.set(newValue, forKey: Key.lockSkipDay) }
+    }
+
+    /// The lock time as user-facing copy — "9:00 AM" (locale-formatted).
+    var lockTimeLabel: String {
+        Self.lockTimeLabel(minutes: lockTimeMinutes)
+    }
+
+    static func lockTimeLabel(minutes: Int) -> String {
+        let date = Calendar.current.date(
+            bySettingHour: minutes / 60, minute: minutes % 60, second: 0, of: Date()
+        ) ?? Date()
+        return date.formatted(date: .omitted, time: .shortened)
     }
 
     // MARK: Today state (written by extensions, read by main app)
@@ -154,16 +151,6 @@ struct SharedDefaults {
     var todayStateDay: String {
         get { defaults.string(forKey: Key.todayStateDay) ?? "" }
         nonmutating set { defaults.set(newValue, forKey: Key.todayStateDay) }
-    }
-
-    /// Codable-archived `Set<ApplicationToken>` currently shielded, or nil when
-    /// nothing is. Written by the monitor extension so `ShieldService.reconcile`
-    /// can restore the exact set — in per-app mode only the apps that actually
-    /// exhausted their own budget are shielded, and re-applying the whole
-    /// selection would defeat the feature.
-    var shieldedAppTokens: Data? {
-        get { defaults.data(forKey: Key.shieldedAppTokens) }
-        nonmutating set { defaults.set(newValue, forKey: Key.shieldedAppTokens) }
     }
 
     /// Stamps `todayStateDay` with the current local day. Call alongside any
@@ -214,64 +201,15 @@ struct SharedDefaults {
 
     // MARK: Phase 15 — Notification preferences (opt-out; default ON)
     //
-    // Sky posts at most two notifications a day, both consequences of the user's
-    // own usage. The 8:30 "Good morning" nudge was removed deliberately: a daily
+    // Sky posts at most one lock notification a day, plus the shield-tap hand-off. The 8:30 "Good morning" nudge was removed deliberately: a daily
     // scheduled ping inviting you to pick up your phone works against an app whose
     // purpose is fewer interruptions. See LocalNotificationScheduler for the
     // migration that cancels the repeating request on already-installed devices.
-
-    /// 30-minutes-before-block warning. Posted by the DeviceActivityMonitor
-    /// extension when the paired warning threshold fires (read cross-process).
-    var notifWarningEnabled: Bool {
-        get { defaults.object(forKey: Key.notifWarningEnabled) as? Bool ?? true }
-        nonmutating set { defaults.set(newValue, forKey: Key.notifWarningEnabled) }
-    }
 
     /// 10 PM streak-at-risk reminder. Pro-gated at the UI/scheduler level.
     var notifStreakEnabled: Bool {
         get { defaults.object(forKey: Key.notifStreakEnabled) as? Bool ?? true }
         nonmutating set { defaults.set(newValue, forKey: Key.notifStreakEnabled) }
-    }
-
-    /// Day stamp of the last "30 minutes left" post, or "" if never.
-    ///
-    /// A `DeviceActivityEvent` threshold is supposed to fire once per interval, but
-    /// iOS re-evaluates already-crossed thresholds whenever monitoring is re-armed
-    /// with `includesPastActivity: true` — which a limit edit or an app-selection
-    /// change triggers. Without a day stamp that replay posts a fresh notification
-    /// at an arbitrary hour with no new usage behind it.
-    var notifWarningDay: String {
-        get { defaults.string(forKey: Key.notifWarningDay) ?? "" }
-        nonmutating set { defaults.set(newValue, forKey: Key.notifWarningDay) }
-    }
-
-    /// Day stamp of the last "Time's up" post, or "" if never. See `notifWarningDay`.
-    var notifBlockStartDay: String {
-        get { defaults.string(forKey: Key.notifBlockStartDay) ?? "" }
-        nonmutating set { defaults.set(newValue, forKey: Key.notifBlockStartDay) }
-    }
-
-    // MARK: Session ladder
-
-    /// Raw JSON for `[String: Int]` — the highest session-ladder rung the monitor
-    /// extension has acted on today, per ladder ("" = combined, base64 token =
-    /// per-app). Written by the extension; the app only ever clears it, at the
-    /// midnight reset.
-    ///
-    /// This is the high-water mark that makes a re-delivered threshold a no-op.
-    /// See `DeviceActivityService`'s header for why the ladder exists at all.
-    var lastFiredRungs: Data? {
-        get { defaults.data(forKey: Key.lastFiredRungs) }
-        nonmutating set { defaults.set(newValue, forKey: Key.lastFiredRungs) }
-    }
-
-    // MARK: Phase 15 — Night Mode (opt-in; default OFF)
-
-    /// When true, the daylight (sunrise/sunset) verification check is bypassed
-    /// (all other checks still apply). Read by VerificationDecisionEngine.
-    var nightModeEnabled: Bool {
-        get { defaults.bool(forKey: Key.nightModeEnabled) }
-        nonmutating set { defaults.set(newValue, forKey: Key.nightModeEnabled) }
     }
 
     // MARK: Phase 15 — Pause Sky (Pro, max once/week)
@@ -335,12 +273,12 @@ struct SharedDefaults {
         nonmutating set { defaults.set(newValue, forKey: Key.appearanceMode) }
     }
 
-    // MARK: DeviceActivity re-arm guard (TIME_REMAINING_PLAN.md §2)
+    // MARK: DeviceActivity re-arm guard
 
-    /// Digest of the configuration `.daily` monitoring was last registered with,
-    /// or nil when nothing is armed. `DeviceActivityService.startMonitoring` skips
+    /// Digest of the configuration monitoring was last registered with, or nil
+    /// when nothing is armed. `DeviceActivityService.startMonitoring` skips
     /// re-registering while this matches the current configuration, so the
-    /// every-foreground call in SkyApp can't restart the day's usage accumulation.
+    /// every-foreground call in SkyApp doesn't churn DeviceActivityCenter.
     ///
     /// App-side only — no extension reads it — but it lives here because it must
     /// survive relaunch alongside the configuration it describes.

@@ -44,6 +44,7 @@
 // present the verification cover over apps that are momentarily unblocked.
 
 import SwiftUI
+import UserNotifications
 
 @main
 struct SkyApp: App {
@@ -55,6 +56,7 @@ struct SkyApp: App {
     @StateObject private var storeKit = StoreKitService()
     @StateObject private var scheduler = LocalNotificationScheduler()
     @StateObject private var appearance = AppearanceManager()
+    @StateObject private var notificationRouter: SkyNotificationRouter
     @Environment(\.scenePhase) private var scenePhase
     @State private var isReady = false
     @State private var deepLinkDestination: SkyDeepLink? = nil
@@ -87,6 +89,12 @@ struct SkyApp: App {
         _coordinator = StateObject(
             wrappedValue: AppCoordinator(onboarding: onboarding, familyControls: familyControls)
         )
+
+        // Installed here, before launch finishes, so a shield-tap notification that
+        // cold-launches Sky still reaches the router.
+        let router = SkyNotificationRouter()
+        UNUserNotificationCenter.current().delegate = router
+        _notificationRouter = StateObject(wrappedValue: router)
     }
 
     var body: some Scene {
@@ -180,6 +188,18 @@ struct SkyApp: App {
             }
             .onOpenURL { url in
                 deepLinkDestination = SkyDeepLink(url: url)
+            }
+            // Finishing setup flips the route without a scenePhase change, so arm the
+            // lock here too — otherwise it waits for the next background round trip.
+            .onChange(of: coordinator.route) { _, route in
+                guard route == .main else { return }
+                try? deviceActivity.startMonitoring()
+                ShieldService.reconcile()
+            }
+            // Shield-button taps arrive as a notification tap (SkyShieldAction).
+            .onReceive(notificationRouter.$pendingLink.compactMap { $0 }) { link in
+                notificationRouter.pendingLink = nil
+                deepLinkDestination = link
             }
             .fullScreenCover(item: $deepLinkDestination) { link in
                 switch link {

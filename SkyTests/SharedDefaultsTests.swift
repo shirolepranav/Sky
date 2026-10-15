@@ -154,14 +154,14 @@ final class SharedDefaultsTests: XCTestCase {
 
     /// Defaults match Tech Spec §6.1.
     func testDefaultsMatchSpec() {
-        XCTAssertEqual(store.limitMode, "combined")
-        XCTAssertEqual(store.combinedLimitSeconds, 7200)
-        XCTAssertTrue(store.limitsEnabled)
+        XCTAssertEqual(store.lockTimeMinutes, 540)
+        XCTAssertEqual(store.lockWeekdays, Set(1...7))
+        XCTAssertNil(store.lockArmedAt)
+        XCTAssertEqual(store.lockSkipDay, "")
         XCTAssertFalse(store.isCurrentlyBlocked)
         XCTAssertFalse(store.didVerifyToday)
         XCTAssertEqual(store.todayResetToken, "")
         XCTAssertEqual(store.todayStateDay, "")
-        XCTAssertNil(store.shieldedAppTokens)
     }
 
     /// The stamp that lets a late midnight reset tell yesterday's flags from
@@ -184,12 +184,8 @@ final class SharedDefaultsTests: XCTestCase {
         )
     }
 
-    /// The recorded shield set the app restores from. Opaque tokens can't be
-    /// fabricated in tests, so this round-trips the storage itself.
-    func testShieldedAppTokensWriteAndClear() {
-        store.shieldedAppTokens = Data("blob".utf8)
-        XCTAssertEqual(store.shieldedAppTokens, Data("blob".utf8))
-        store.shieldedAppTokens = nil
-        XCTAssertNil(store.shieldedAppTokens)
+    func testLockWeekdaysRoundTrip() {
+        store.lockWeekdays = [2, 3, 4, 5, 6]
+        XCTAssertEqual(store.lockWeekdays, [2, 3, 4, 5, 6])
     }
 }

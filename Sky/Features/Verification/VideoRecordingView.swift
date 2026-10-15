@@ -1,5 +1,5 @@
 // VideoRecordingView.swift
-// S-VER-03 — Full-bleed camera preview with 30-second countdown ring,
+// S-VER-03 — Full-bleed camera preview with 5-second countdown ring,
 // timed prompts, recording dot, and cancel button.
 // S-VER-04 — Cancel confirmation sheet (embedded).
 // Sky_App_Workflow.md §Part 2 S-VER-03/04; Tech Spec §8.1.
@@ -35,13 +35,13 @@ struct VideoRecordingView: View {
                 // Top: countdown ring
                 ZStack {
                     SkyProgressRing(
-                        progress: 1.0 - Double(vm.elapsedSeconds) / 30.0,
+                        progress: 1.0 - Double(vm.elapsedSeconds) / Double(vm.recordingDuration),
                         accent: .white,
                         lineWidth: 6
                     )
                     .frame(width: 80, height: 80)
 
-                    Text("\(30 - vm.elapsedSeconds)")
+                    Text("\(vm.recordingDuration - vm.elapsedSeconds)")
                         .skyText(.titleM)
                         .foregroundColor(.white)
                         .contentTransition(.numericText(countsDown: true))

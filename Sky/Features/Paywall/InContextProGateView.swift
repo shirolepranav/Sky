@@ -1,13 +1,13 @@
 // InContextProGateView.swift
 // S-PAY-05 · In-context Pro gate — a compact mid-screen sheet shown when a
-// free user taps a Pro-only feature inline (per-app limits, weekly insights,
+// free user taps a Pro-only feature inline (lock days, weekly insights,
 // pause, streak warning notification).
 // Sky_App_Workflow.md §Group G S-PAY-05; Roadmap Phase 14.
 
 import SwiftUI
 
 struct InContextProGateView: View {
-    /// Feature-specific headline, e.g. "Per-app limits is a Pro feature."
+    /// Feature-specific headline, e.g. "Choosing lock days is a Pro feature."
     let featureTitle: String
     let onSeePro: () -> Void
     let onDismiss: () -> Void
@@ -27,7 +27,7 @@ struct InContextProGateView: View {
                     .skyText(.titleM)
                     .multilineTextAlignment(.center)
 
-                Text("Sky Pro unlocks per-app limits, the full insight set, all badges, and supports development.")
+                Text("Sky Pro unlocks lock days, the full insight set, all badges, and supports development.")
                     .skyText(.body, color: SkyColor.inkSoft)
                     .multilineTextAlignment(.center)
             }
@@ -46,11 +46,11 @@ struct InContextProGateView: View {
     }
 }
 
-#Preview("S-PAY-05 Per-app gate") {
+#Preview("S-PAY-05 Lock days gate") {
     Color.black.opacity(0.3).ignoresSafeArea()
         .sheet(isPresented: .constant(true)) {
             InContextProGateView(
-                featureTitle: "Per-app limits is a Pro feature.",
+                featureTitle: "Choosing lock days is a Pro feature.",
                 onSeePro: {},
                 onDismiss: {}
             )

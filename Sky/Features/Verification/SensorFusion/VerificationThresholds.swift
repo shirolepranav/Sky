@@ -1,21 +1,27 @@
 // VerificationThresholds.swift
 // Single tunable source for all verification signal thresholds.
-// Tech Spec §8.5. Phase 8 defines them; Phase 10 (VerificationDecisionEngine) reads them.
-// Re-measure against real-world recordings in 5+ environments before launch (Roadmap Phase 10).
-// Never duplicate these values elsewhere.
+// Tech Spec §8.5; DAILY_LOCK_PLAN.md Phase E (three checks + 5-second clip).
+// ⚠️ Placeholders until field-tested: re-measure against real walks in 5+
+// environments before launch. Never duplicate these values elsewhere.
 
 import CoreLocation
 
 enum VerificationThresholds {
-    // GPS
-    static let maxAcceptableGPSError: CLLocationAccuracy = 25.0  // metres — above this = likely indoors
-    static let minHorizontalSpeed: Double = 0.3                   // m/s  — below = not walking
-    static let minAltitudeChange: Double  = 0.5                   // metres — combined with speed check
+    // 1. GPS — above this the fix is too fuzzy to trust (likely indoors / no fix).
+    static let maxAcceptableGPSError: CLLocationAccuracy = 50.0  // metres
 
-    // Ambient light (camera exposureTargetOffset)
-    static let minExposureBias: Float = -1.0                      // below this = too dim
+    // 2. Steps — read retroactively from CMPedometer, so the walk happens first.
+    static let minRecentSteps = 200
+    static let stepWindowSeconds: TimeInterval = 15 * 60
 
-    // Vision (used in Phases 9 and 10 — defined here for central ownership)
-    static let minOutdoorFrameRatio: Double = 0.8                 // 80 % of frames must score outdoor
-    static let minSkyPixelPercent: Double   = 0.15                // at least one frame ≥ 15 % sky pixels
+    // 3. Outdoor scene (daylight only — waived after civil dusk).
+    static let minOutdoorFrameRatio: Double = 0.6   // 60 % of sampled frames score outdoor
+    static let minSkyPixelPercent: Double   = 0.10  // best frame shows ≥ 10 % sky
+
+    /// Recording length. The ground-to-sky tilt fits comfortably in five seconds.
+    static let clipSeconds = 5
+
+    /// After the clip stops, how long to keep waiting for a usable GPS fix — a
+    /// five-second window is often shorter than a cold fix.
+    static let gpsGraceSeconds: TimeInterval = 6
 }

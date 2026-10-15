@@ -4,19 +4,20 @@ Guidance for working in the Sky codebase. Read this first.
 
 ## What Sky is
 
-iOS app (SwiftUI, iOS 17+) that blocks selected social apps after a time budget
-and requires a verified ~30-second **outdoor video** to unlock them. The
-strict on-device verification is the entire product. Friendly cloud mascot
-("Nimbus"). No skip credits; the only escape is a friction-loaded emergency
-unlock. iOS-only, no third-party SDKs, on-device only (no user videos leave the
-phone).
+iOS app (SwiftUI, iOS 17+): **every morning at a user-picked time the selected
+social apps pause, and they stay paused until the user goes outside.** A short
+walk (~200 steps) plus a 5-second clip of the sky unlocks them until the next
+lock time. Friendly cloud mascot ("Nimbus"). No skip credits; the only escape is
+a friction-loaded emergency unlock. iOS-only, no third-party SDKs, on-device only
+(no user videos leave the phone).
 
-A pass buys **one more session** — another budget's worth of usage — not the rest
-of the day. iOS will not deliver a second threshold callback for the same event
-in one day, so `DeviceActivityService` pre-registers a *ladder* of events at 1×,
-2×, 3×… the session length, and `SkyDeviceActivityMonitor` tracks the highest
-rung it has acted on. Read that file's header before touching monitoring. The
-emergency unlock is the one path that still covers the whole day.
+**No usage counting.** `DeviceActivityService` registers two schedules with no
+events — `.daily` (midnight rollover, streaks) and `.lock` (lock time → shield).
+The old usage-threshold model (`DeviceActivityEvent`, `includesPastActivity`, a
+ladder of rungs) fired notifications at random and was removed on 2026-10-14;
+don't bring thresholds back. `LockPolicy` is the one rule for "should the lock
+apply", mirrored in the monitor extension. Midnight never lifts the lock. See
+`DAILY_LOCK_PLAN.md`.
 
 ## Source-of-truth documents (read before non-trivial work)
 
@@ -27,6 +28,7 @@ emergency unlock is the one path that still covers the whole day.
 | `Sky_Development_Roadmap.md` | The 16 build phases, in dependency order, with tests per phase |
 | `Sky_App_Workflow.md` | Every screen (catalog with IDs like `S-VER-03`), user journeys, state machines, gating table, copy library |
 | `DESIGN_SYSTEM.md` | Authoritative visual spec — color, type, spacing, components, Nimbus |
+| `DAILY_LOCK_PLAN.md` | The 2026-10-14 pivot to the morning lock + 3-check verification. Where it conflicts with the Tech Spec / Workflow / Roadmap, it wins |
 
 If two docs conflict on visuals, **`DESIGN_SYSTEM.md` and the design tokens win**
 (it says so itself). For product behavior, the PRD wins.
@@ -77,8 +79,8 @@ fallback below. Run the unit tests the same way:
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild test -project Sky.xcodeproj -scheme Sky -destination 'platform=iOS Simulator,name=iPhone 17'
 ```
 
-The suite runs **266 tests, 2 failures** (plus 8 StoreKit tests skipped on runtimes
-where StoreKit Testing is broken — see gap 1 below). The 2 are long-standing and live
+The unit suite runs **240 tests, 2 failures** with `StoreKitServiceTests` excluded
+(as of the 2026-10-14 daily-lock pivot; see gap 1 below for StoreKit). The 2 are long-standing and live
 in `OnboardingViewModelTests` and `SetupRoutingTests` — **not** regressions. Treat
 that as the baseline; a change is clean if it adds no failures beyond those.
 
@@ -109,7 +111,9 @@ If you see a failure you can't explain, re-run after
    DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild test -project Sky.xcodeproj -scheme Sky -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.2' -only-testing:SkyTests/StoreKitServiceTests
    ```
    On a bad runtime they skip (via `skipIfStoreKitTestingIsBroken()`) instead of
-   failing red. Beware: `AppStore.sync()` *hangs* on a broken runtime, so any new
+   failing red. ⚠️ On the **iOS 27.0** runtime the guard does *not* detect the
+   breakage: six tests fail and `testRestoreFindsExistingPurchase` hangs the run.
+   There, pass `-skip-testing:SkyTests/StoreKitServiceTests`. Beware: `AppStore.sync()` *hangs* on a broken runtime, so any new
    restore test must call that guard first or it stalls the whole run.
 2. **`#Preview` blocks must sit inside any `#if DEBUG` that guards the type they
    reference.** A preview left outside the `#endif` compiles in Debug but breaks
@@ -205,9 +209,9 @@ kind. Exact strings for built screens live in `Sky_App_Workflow.md §3.3`.
   on iOS 17.0, 17.6, latest 18.x.
 - **iOS silently reissues `ApplicationToken`s.** The persisted
   `FamilyActivitySelection` is *our own* JSON, so iOS never touches it — it keeps
-  decoding cleanly while the tokens inside stop matching any app. Stale tokens fire
-  no threshold, so the shield is never applied and Sky silently stops working while
-  the UI still says "monitoring". There is no reliable direct detection, so
+  decoding cleanly while the tokens inside stop matching any app. A shield built
+  from stale tokens covers nothing, so Sky silently stops working while the UI
+  still says "monitoring". There is no reliable direct detection, so
   `SharedDefaults.selectionNeedsRedo` uses an **OS major-version change** as a proxy
   and `configFingerprint` mixes the OS version in so monitoring re-arms once per
   upgrade. Deliberate tradeoff: one false "Re-select apps" prompt per annual iOS
@@ -222,15 +226,14 @@ kind. Exact strings for built screens live in `Sky_App_Workflow.md §3.3`.
   in 5+ environments before launch (Roadmap Phase 10)", so treat the current values
   as placeholders. (This line previously claimed they *had* been measured; the file
   is the authority.)
-- **Night verification does not work**, and Night Mode is misleading about it.
-  `SkyPixelCounter` gates sky detection on brightness (`v >= 0.35` blue, `v >= 0.75`
-  overcast), so it returns ~0 in darkness. Night Mode waives only the daylight check,
-  so a user who enables it is sent outside at night and then fails on "Show some
-  sky." A DEBUG-only spike under
-  `Sky/Features/Verification/VisionAnalysis/Debug/` measures candidate
-  daylight-independent signals (depth, texture energy); a Core ML night-sky
-  classifier is the intended primary fix because it is the only candidate that
-  covers every iOS 17 device.
+- **Verification after dark** waives the camera (scene) check — `SkyPixelCounter`
+  gates on brightness and returns ~0 at night — so GPS + steps decide alone
+  (`VerificationDecisionEngine`). Night Mode and the depth/texture debug spike were
+  removed with the pivot.
+- **A shield button can't open Sky.** `SkyShieldAction` posts a local notification
+  carrying `sky_deep_link`; `SkyNotificationRouter` (the notification-center
+  delegate, installed in `SkyApp.init`) routes the tap. The App Group
+  `pending_deep_link` remains the fallback when the user opens Sky by hand.
 
 ## Project skills
 

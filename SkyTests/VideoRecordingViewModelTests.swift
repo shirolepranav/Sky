@@ -1,7 +1,7 @@
 // VideoRecordingViewModelTests.swift
 // Phase 7 automated tests (Roadmap Phase 7 → Automated Tests).
 // Tests the countdown timer, prompt advancement, cancel file-cleanup, and
-// 30-second auto-stop — all without touching real AVFoundation.
+// 5-second auto-stop — all without touching real AVFoundation.
 // A MockCaptureController is injected via the CaptureController protocol seam.
 
 import AVFoundation
@@ -96,17 +96,18 @@ final class VideoRecordingViewModelTests: XCTestCase {
         XCTAssertFalse(mock.stopRecordingCalled)
     }
 
-    // MARK: Stops at 30 seconds
+    // MARK: Stops at the clip length
 
-    func testRecordingStopsAt30Seconds() {
+    func testRecordingStopsAtClipLength() {
         vm._primeForTesting()
         vm.startCountdownTimer()
 
-        // Drive 30 ticks manually
-        for _ in 0..<30 { vm._tick() }
+        for _ in 0..<(VerificationThresholds.clipSeconds - 1) { vm._tick() }
+        XCTAssertFalse(mock.stopRecordingCalled, "must not stop early")
+        vm._tick()
 
-        XCTAssertTrue(mock.stopRecordingCalled, "stopRecording should be called at 30 seconds")
-        XCTAssertEqual(vm.elapsedSeconds, 30)
+        XCTAssertTrue(mock.stopRecordingCalled)
+        XCTAssertEqual(vm.elapsedSeconds, VerificationThresholds.clipSeconds)
     }
 
     // MARK: Cancel deletes file
@@ -137,25 +138,10 @@ final class VideoRecordingViewModelTests: XCTestCase {
         vm._primeForTesting()
         vm.startCountdownTimer()
 
-        // 0–5s → prompt 0
-        for _ in 0..<5 { vm._tick() }
-        XCTAssertEqual(vm.currentPromptIndex, 0, "Prompt 0 should show at 0–5s")
-
-        // 6s → prompt 1
         vm._tick()
-        XCTAssertEqual(vm.currentPromptIndex, 1, "Prompt 1 should show at 6s")
-
-        // 7–13s → still prompt 1
-        for _ in 0..<7 { vm._tick() }
-        XCTAssertEqual(vm.currentPromptIndex, 1, "Prompt 1 should persist through 13s")
-
-        // 14s → prompt 2
+        XCTAssertEqual(vm.currentPromptIndex, 0, "ground prompt first")
         vm._tick()
-        XCTAssertEqual(vm.currentPromptIndex, 2, "Prompt 2 should show at 14s")
-
-        // 22s → prompt 3
-        for _ in 0..<8 { vm._tick() }
-        XCTAssertEqual(vm.currentPromptIndex, 3, "Prompt 3 should show at 22s")
+        XCTAssertEqual(vm.currentPromptIndex, 1, "tilt-up prompt from 2 s")
     }
 
     // MARK: Retry / reset
@@ -165,43 +151,42 @@ final class VideoRecordingViewModelTests: XCTestCase {
     /// 0 and an empty ring, instead of restarting the recording.
     ///
     /// The coordinator owns one view model for the whole flow, so the second
-    /// attempt inherited `elapsedSeconds == 30` and `currentPromptIndex == 3` from
+    /// attempt inherited a finished `elapsedSeconds` and `currentPromptIndex` from
     /// the first. Every existing test above starts from `_primeForTesting`, which
     /// zeroes exactly these two — which is precisely why none of them caught it.
     func testResetReturnsToTheFirstPromptAndAFullCountdown() {
         vm._primeForTesting()
         vm.startCountdownTimer()
-        for _ in 0..<30 { vm._tick() }
+        for _ in 0..<VerificationThresholds.clipSeconds { vm._tick() }
 
         // Precondition: this is the state a completed attempt leaves behind.
-        XCTAssertEqual(vm.elapsedSeconds, 30)
-        XCTAssertEqual(vm.currentPromptIndex, 3)
-        XCTAssertEqual(vm.currentPromptText, "Almost done — keep the sky in view.")
+        XCTAssertEqual(vm.elapsedSeconds, VerificationThresholds.clipSeconds)
+        XCTAssertEqual(vm.currentPromptIndex, vm.prompts.count - 1)
 
         vm.reset()
 
-        XCTAssertEqual(vm.elapsedSeconds, 0, "countdown must read 30, not 0")
+        XCTAssertEqual(vm.elapsedSeconds, 0, "countdown must restart full, not at 0")
         XCTAssertEqual(vm.currentPromptIndex, 0)
-        XCTAssertEqual(vm.currentPromptText, "Hold steady, point your camera up.")
+        XCTAssertEqual(vm.currentPromptText, vm.prompts[0].text)
         XCTAssertEqual(vm.recordingState, .idle)
     }
 
     /// After a reset the timer must actually run again. Before the fix the first
-    /// tick of a retry started from 30, immediately tripped the `>= 30` auto-stop,
+    /// tick of a retry started from the end, immediately tripped the auto-stop,
     /// and produced a one-second clip.
     func testResetAllowsAFullSecondAttempt() {
         vm._primeForTesting()
         vm.startCountdownTimer()
-        for _ in 0..<30 { vm._tick() }
+        for _ in 0..<VerificationThresholds.clipSeconds { vm._tick() }
         vm.reset()
 
         // Second attempt.
         vm._primeForTesting()
         vm.startCountdownTimer()
-        for _ in 0..<6 { vm._tick() }
+        vm._tick()
 
-        XCTAssertEqual(vm.elapsedSeconds, 6, "the retry must count from zero")
-        XCTAssertEqual(vm.currentPromptIndex, 1, "prompts must re-sequence from the start")
+        XCTAssertEqual(vm.elapsedSeconds, 1, "the retry must count from zero")
+        XCTAssertEqual(vm.currentPromptIndex, 0, "prompts must re-sequence from the start")
     }
 
     /// A retry must not leave the abandoned attempt's video on disk — verification

@@ -1,25 +1,16 @@
 // LimitConfigurationView.swift
-// S-CFG-03 · Session Limit Configuration (Sky_App_Workflow.md §S-CFG-03).
+// S-CFG-03 · Lock time (Sky_App_Workflow.md §S-CFG-03; DAILY_LOCK_PLAN.md Phase D).
 //
-// The value here is a *session* budget, not a daily one: it is what the user
-// spends before Sky asks them outside, and what a passed verification grants
-// again. Same number, same picker — the meaning changed when verification stopped
-// unlocking until midnight (see DeviceActivityService's session ladder).
+// Every day at the chosen time the selected apps pause, and stay paused until the
+// user takes a short walk outside. Lock days (weekends off, etc.) are Pro —
+// S-PAY-05 appears on a free user's tap.
 //
-// Hosts the combined/per-app mode toggle with embedded pickers:
-//   S-CFG-04 · CombinedLimitContent — three hour-chips, tap to select
-//   S-CFG-05 · PerAppLimitsContent  — per-token steppers (Pro)
-//   S-CFG-06 · SkyToast             — "Saved. Sky's watching." confirmation
+//   S-CFG-06 · SkyToast — "Saved." confirmation
 //
-// Phase 14: "Per app" segment is gated for free users via a custom Picker binding
-// that calls viewModel.setLimitMode(_:isPro:). S-PAY-05 appears on gate trigger.
-//
-// Entry points: SetupFlowView (first-run) and S-SET-02 (Settings, Phase 15).
+// Entry points: SetupFlowView (first-run), S-SET-02 (Settings), Today's no-limit state.
 // Exit: onSave() is called after the toast finishes dismissing.
 
 import SwiftUI
-import FamilyControls
-import ManagedSettings
 
 struct LimitConfigurationView: View {
     @ObservedObject var viewModel: LimitConfigurationViewModel
@@ -35,41 +26,52 @@ struct LimitConfigurationView: View {
             VStack(alignment: .leading, spacing: SkySpacing.s6) {
                 Spacer(minLength: SkySpacing.s6)
 
-                Text("Session limit")
+                Text("When should your apps pause?")
                     .skyText(.titleXL)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .accessibilityIdentifier("limitConfig.title")
 
-                // S-CFG-03 · Mode toggle. Custom binding routes "Per app" taps through
-                // the Pro gate for free users (S-PAY-05) via viewModel.setLimitMode.
-                Picker("Limit mode", selection: Binding(
-                    get: { viewModel.limitMode },
-                    set: { viewModel.setLimitMode($0, isPro: storeKit.isPro) }
-                )) {
-                    Text("Combined").tag(LimitConfigurationViewModel.LimitMode.combined)
-                    Text("Per app").tag(LimitConfigurationViewModel.LimitMode.perApp)
-                }
-                .pickerStyle(.segmented)
-                .accessibilityIdentifier("limitConfig.modePicker")
+                Text("Each day at this time your selected apps pause. A short walk outside unlocks them until the next day.")
+                    .skyText(.body, color: SkyColor.inkSoft)
+                    .fixedSize(horizontal: false, vertical: true)
 
-                // Embedded content swaps with a 0.2 s cross-dissolve (S-CFG-03 spec).
                 SkyCard {
-                    Group {
-                        if viewModel.limitMode == .combined {
-                            CombinedLimitContent(seconds: $viewModel.combinedLimitSeconds)
-                        } else {
-                            PerAppLimitsContent(viewModel: viewModel)
+                    Picker("Lock time", selection: $viewModel.lockTimeMinutes) {
+                        ForEach(LimitConfigurationViewModel.lockTimeOptions, id: \.self) { minutes in
+                            Text(SharedDefaults.lockTimeLabel(minutes: minutes)).tag(minutes)
                         }
                     }
-                    .animation(SkyMotion.quickEase, value: viewModel.limitMode)
+                    .pickerStyle(.wheel)
+                    .accessibilityIdentifier("limitConfig.timePicker")
                 }
 
-                Text("Limits reset at midnight, your local time.")
+                VStack(alignment: .leading, spacing: SkySpacing.s3) {
+                    HStack {
+                        Text("Lock days").skyText(.label, color: SkyColor.inkSoft)
+                        if !storeKit.isPro {
+                            Label("Pro", systemImage: "lock.fill")
+                                .labelStyle(.titleAndIcon)
+                                .skyText(.caption, color: SkyColor.inkMuted)
+                        }
+                    }
+                    HStack(spacing: SkySpacing.s2) {
+                        ForEach(LimitConfigurationViewModel.orderedWeekdays, id: \.self) { weekday in
+                            DayChip(
+                                label: Calendar.current.veryShortWeekdaySymbols[weekday - 1],
+                                accessibilityName: Calendar.current.weekdaySymbols[weekday - 1],
+                                isSelected: viewModel.lockWeekdays.contains(weekday)
+                            ) {
+                                viewModel.toggleWeekday(weekday, isPro: storeKit.isPro)
+                            }
+                        }
+                    }
+                }
+                .accessibilityIdentifier("limitConfig.days")
+
+                Text("If the new time has already passed today, your apps pause now.")
                     .skyText(.caption, color: SkyColor.inkSoft)
                     .frame(maxWidth: .infinity, alignment: .center)
                     .accessibilityIdentifier("limitConfig.resetCaption")
-
-                Spacer(minLength: SkySpacing.s6)
 
                 SkyPrimaryButton("Save") {
                     viewModel.save()
@@ -83,16 +85,16 @@ struct LimitConfigurationView: View {
         }
         .background(SkyColor.surface.ignoresSafeArea())
         // S-CFG-06 · Confirmation toast; onSave fires after dismissal
-        .skyToast(isPresented: $showToast, message: "Saved. Sky's watching.", onComplete: onSave)
-        // S-PAY-05 · Per-app mode Pro gate
-        .sheet(isPresented: $viewModel.showsPerAppProGate) {
+        .skyToast(isPresented: $showToast, message: "Saved. Nimbus will see you outside ☁", onComplete: onSave)
+        // S-PAY-05 · Lock days Pro gate
+        .sheet(isPresented: $viewModel.showsLockDaysProGate) {
             InContextProGateView(
-                featureTitle: "Per-app limits is a Pro feature.",
+                featureTitle: "Choosing lock days is a Pro feature.",
                 onSeePro: {
-                    viewModel.showsPerAppProGate = false
+                    viewModel.showsLockDaysProGate = false
                     showPaywall = true
                 },
-                onDismiss: { viewModel.showsPerAppProGate = false }
+                onDismiss: { viewModel.showsLockDaysProGate = false }
             )
             .presentationDetents([.medium])
         }
@@ -104,164 +106,45 @@ struct LimitConfigurationView: View {
     }
 }
 
-// MARK: – S-CFG-04 · Combined Limit (1 h / 2 h / 3 h chips)
-
-private struct CombinedLimitContent: View {
-    @Binding var seconds: Int
-
-    private let options: [(label: String, value: Int)] = [
-        ("1 h", 3600),
-        ("2 h", 7200),
-        ("3 h", 10800),
-    ]
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: SkySpacing.s4) {
-            Text("How long across all selected apps before Sky asks you to go outside? You get this much again after each verification.")
-                .skyText(.bodyS, color: SkyColor.inkSoft)
-
-            // Accessibility: underlying Picker drives VoiceOver ("One hour" etc.)
-            HStack(spacing: SkySpacing.s3) {
-                ForEach(options, id: \.value) { option in
-                    HourChip(
-                        label: option.label,
-                        isSelected: seconds == option.value
-                    ) {
-                        withAnimation(.spring(response: 0.2)) {
-                            seconds = option.value
-                        }
-                    }
-                }
-            }
-            // Invisible Picker so VoiceOver users can navigate by value.
-            Picker("Session limit", selection: $seconds) {
-                Text("One hour").tag(3600)
-                Text("Two hours").tag(7200)
-                Text("Three hours").tag(10800)
-            }
-            .pickerStyle(.inline)
-            .frame(height: 0)
-            .accessibilityHidden(false)
-            .opacity(0)
-        }
-    }
-}
-
-// Single selectable chip for the combined-limit row.
-private struct HourChip: View {
+// One weekday toggle. 44 pt minimum, selected = primarySky fill.
+private struct DayChip: View {
     let label: String
+    let accessibilityName: String
     let isSelected: Bool
     let action: () -> Void
 
-    @ScaledMetric private var chipHeight: CGFloat = 52
+    @ScaledMetric private var size: CGFloat = 44
 
     var body: some View {
         Button(action: action) {
             Text(label)
-                .skyText(.headline, color: isSelected ? SkyColor.ink : SkyColor.inkSoft)
+                .skyText(.headline, color: isSelected ? SkyColor.inkOnAccent : SkyColor.inkSoft)
                 .frame(maxWidth: .infinity)
-                .frame(height: chipHeight)
+                .frame(height: size)
                 .background(
                     RoundedRectangle(cornerRadius: SkyRadius.chip, style: .continuous)
                         .fill(isSelected ? SkyColor.primarySky : SkyColor.surface)
                 )
                 .overlay(
                     RoundedRectangle(cornerRadius: SkyRadius.chip, style: .continuous)
-                        .strokeBorder(
-                            isSelected ? Color.clear : SkyColor.divider,
-                            lineWidth: 1
-                        )
+                        .strokeBorder(isSelected ? Color.clear : SkyColor.divider, lineWidth: 1)
                 )
         }
         .buttonStyle(.plain)
+        .accessibilityLabel(accessibilityName)
         .accessibilityAddTraits(isSelected ? [.isSelected] : [])
-        .accessibilityLabel(label)
-    }
-}
-
-// MARK: – S-CFG-05 · Per-App Limits [Pro]
-
-private struct PerAppLimitsContent: View {
-    @ObservedObject var viewModel: LimitConfigurationViewModel
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: SkySpacing.s4) {
-            Text("How long for each app?")
-                .skyText(.label, color: SkyColor.inkSoft)
-
-            if viewModel.appTokens.isEmpty {
-                Text(viewModel.hasCategoriesOnly
-                     ? "Per-app limits work on individual apps. You've picked a category — use Combined, or go back and choose specific apps."
-                     : "No apps selected yet.")
-                    .skyText(.body, color: SkyColor.inkSoft)
-                    .fixedSize(horizontal: false, vertical: true)
-            } else {
-                LazyVStack(spacing: SkySpacing.s3) {
-                    ForEach(viewModel.appTokens, id: \.self) { token in
-                        PerAppRow(
-                            token: token,
-                            minutesBinding: viewModel.minutesBinding(for: token)
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
-private struct PerAppRow: View {
-    let token: ApplicationToken
-    @Binding var minutes: Int
-
-    init(token: ApplicationToken, minutesBinding: Binding<Int>) {
-        self.token = token
-        self._minutes = minutesBinding
-    }
-
-    var body: some View {
-        HStack(spacing: SkySpacing.s3) {
-            Label(token)
-                .labelStyle(.iconOnly)
-                .font(.system(size: 28))
-                .accessibilityHidden(true)
-
-            Spacer()
-
-            Text(minuteLabel)
-                .skyText(.body)
-                .monospacedDigit()
-                .frame(minWidth: 52, alignment: .trailing)
-                .accessibilityHidden(true)
-
-            Stepper("", value: $minutes, in: 15...240, step: 15)
-                .labelsHidden()
-                .accessibilityLabel("Session limit, \(minuteLabel)")
-                .accessibilityValue(minuteLabel)
-        }
-        .frame(minHeight: SkyLayout.minTouchTarget)
-    }
-
-    private var minuteLabel: String {
-        guard minutes >= 60 else { return "\(minutes) m" }
-        let h = minutes / 60
-        let m = minutes % 60
-        return m > 0 ? "\(h) h \(m) m" : "\(h) h"
     }
 }
 
 // MARK: – Previews
 
-#Preview("S-CFG-03 Combined (default)") {
-    LimitConfigurationView(
-        viewModel: LimitConfigurationViewModel(),
-        onSave: {}
-    )
-    .environmentObject(StoreKitService())
+#Preview("S-CFG-03 Lock time") {
+    LimitConfigurationView(viewModel: LimitConfigurationViewModel(), onSave: {})
+        .environmentObject(StoreKitService())
 }
 
-#Preview("S-CFG-03 Per-app (empty selection)") {
-    let vm = LimitConfigurationViewModel()
-    vm.limitMode = .perApp
-    return LimitConfigurationView(viewModel: vm, onSave: {})
+#Preview("S-CFG-03 Lock time · dark") {
+    LimitConfigurationView(viewModel: LimitConfigurationViewModel(), onSave: {})
         .environmentObject(StoreKitService())
+        .preferredColorScheme(.dark)
 }

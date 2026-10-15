@@ -31,8 +31,7 @@ struct NotificationPermissionView: View {
                     .multilineTextAlignment(.center)
 
                 VStack(alignment: .leading, spacing: SkySpacing.s3) {
-                    bullet("A heads-up 30 minutes before your apps pause.")
-                    bullet("A note when they do.")
+                    bullet("A note when your apps pause each morning.")
                     bullet("Streak reminders if you're about to break one. (Pro)")
                 }
                 .padding(.horizontal, SkyLayout.screenMargin)

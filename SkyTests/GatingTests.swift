@@ -30,37 +30,5 @@ final class GatingTests: XCTestCase {
         XCTAssertFalse(AppSelectionViewModel.isOverFreeLimit(count: 3,  isPro: true))
         XCTAssertFalse(AppSelectionViewModel.isOverFreeLimit(count: 20, isPro: true))
     }
-
-    // MARK: - LimitConfigurationViewModel: per-app mode gate
-
-    func testPerAppModeSetsGateFlagForFreeUser() {
-        let vm = LimitConfigurationViewModel()
-        vm.setLimitMode(.perApp, isPro: false)
-        XCTAssertTrue(vm.showsPerAppProGate)
-        XCTAssertEqual(vm.limitMode, .combined, "limitMode must not change when gate fires")
-    }
-
-    func testPerAppModeAllowedForProUser() {
-        let vm = LimitConfigurationViewModel()
-        vm.setLimitMode(.perApp, isPro: true)
-        XCTAssertFalse(vm.showsPerAppProGate)
-        XCTAssertEqual(vm.limitMode, .perApp)
-    }
-
-    func testCombinedModeAlwaysAllowedForFreeUser() {
-        let vm = LimitConfigurationViewModel()
-        vm.limitMode = .perApp
-        vm.setLimitMode(.combined, isPro: false)
-        XCTAssertFalse(vm.showsPerAppProGate)
-        XCTAssertEqual(vm.limitMode, .combined)
-    }
-
-    func testPerAppGateFiringAgainAfterDismissal() {
-        let vm = LimitConfigurationViewModel()
-        vm.setLimitMode(.perApp, isPro: false)
-        XCTAssertTrue(vm.showsPerAppProGate)
-        vm.showsPerAppProGate = false   // simulate gate dismissal
-        vm.setLimitMode(.perApp, isPro: false)
-        XCTAssertTrue(vm.showsPerAppProGate, "Gate should re-fire on repeated attempt")
-    }
+    // Lock-days Pro gate: LimitConfigurationViewModelTests.
 }

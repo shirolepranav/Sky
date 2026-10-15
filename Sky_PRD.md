@@ -6,9 +6,9 @@
 
 ## 1. Vision & Positioning
 
-Sky is an iOS app that helps people break the doomscroll loop by physically getting them outside. It blocks selected social media apps after a user-set time budget and requires a verified ~30-second outdoor video to unlock them again — for one more budget's worth of use, not the rest of the day. The verification is strict by design — it is the entire product.
+Sky is an iOS app that helps people break the doomscroll loop by physically getting them outside. **Every morning at a time the user picks, selected social apps pause — and they stay paused until the user goes outside.** A short walk plus a 5-second clip of the sky unlocks them for the rest of the day. The hook: *"My phone doesn't work until I go outside."* (Model adopted 2026-10-14 — see `DAILY_LOCK_PLAN.md`.)
 
-**Positioning:** *"Touch Grass for people who actually want to quit."* Multi-sensor video verification, Screen Time API enforcement, daily midnight reset, friendly cloud mascot. No skip credits. No escape hatches beyond a friction-loaded emergency override.
+**Positioning:** *"Touch Grass for people who actually want to quit."* Step count + GPS + sky-clip verification, Screen Time API enforcement, a daily morning lock, friendly cloud mascot. No skip credits. No escape hatches beyond a friction-loaded emergency override.
 
 **Target user:** Gen Z and younger millennials (16–32) doing self-improvement, "dopamine detox," or "phone detox." Price-sensitive, organic-acquisition-friendly, shares apps on TikTok and Reddit.
 
@@ -29,25 +29,23 @@ Sky exists for users who **want the friction**. The verification has to be genui
 
 1. User downloads Sky, sees onboarding featuring Nimbus the cloud mascot
 2. User grants Family Controls (Screen Time) authorization for individual mode
-3. User picks which apps to block via Apple's `FamilyActivityPicker` (typically Instagram, TikTok, Snapchat, X)
-4. User picks a session budget — combined (1/2/3 hours total) or per-app. This is what they spend before Sky asks them outside, and what each verification grants again
-5. User uses their phone normally throughout the day; Sky tracks usage silently
-6. When the budget is reached, selected apps are blocked. Tapping a blocked app shows a shielded screen with Nimbus and a "Go outside to unlock" button
-7. User goes outside, opens Sky, records a ~30-second video while following on-screen prompts
-8. Sky verifies the video using GPS, barometer, light sensor, scene classification, and sky detection — entirely on-device
-9. On success, apps unlock for another **session** — one more budget's worth of usage, not the rest of the day; Nimbus brightens; streak counter increments
-10. When that session's usage is spent, the apps block again and step 6 repeats. A day can hold several sessions
-11. At midnight local time, usage resets and the cycle starts over at the configured budget
+3. User picks which apps to lock via Apple's `FamilyActivityPicker` (typically Instagram, TikTok, Snapchat, X)
+4. User picks a **lock time** (default 9:00 AM)
+5. Every day at the lock time the selected apps pause. Tapping one shows Nimbus and an "Unlock with Sky" button
+6. User takes a short walk outside (~200 steps), opens Sky, and films a 5-second clip tilting from the ground up to the sky
+7. Sky checks GPS, recent steps, and (in daylight) the scene — entirely on-device
+8. On success the apps stay open **until the next lock time**; Nimbus brightens; the streak counter increments
+9. Going outside *before* the lock time (an early bird) skips that day's lock
+10. If the user never goes outside, the apps stay paused — midnight does not release them
 
-> **Why sessions, not the rest of the day.** A single 30-second video at 9am used
-> to buy fifteen unmetered hours, which defeats the budget entirely. Verification
-> now grants exactly one session, so the outdoor break is a recurring cost of
-> screen time rather than a one-off toll. Enforcement is *usage*-based: a day
-> where the apps go untouched never re-locks. The emergency unlock is the
-> exception and still covers the whole day (§4.7) — it is friction-gated and
-> streak-costing already.
+> **Why a morning lock, not a usage budget.** The usage-threshold model counted
+> screen time with `DeviceActivityEvent` thresholds, which fired at arbitrary
+> times ("30 minutes left" on days the apps were never opened) and buried the
+> hook under mechanics. Scheduled interval starts are the reliable part of the
+> Screen Time API, and "apps pause until you go outside" is one sentence anyone
+> can repeat.
 
-**Alternative path (emergency unlock):** If user can't or won't go outside, they tap "I can't go outside right now" → must type (not paste) a reason why they need to unlock → 5-second forced pause → apps unlock but streak breaks and Nimbus turns sad/rainy.
+**Alternative path (emergency unlock):** If user can't or won't go outside, they tap "Emergency unlock" → must type (not paste) a reason why they need to unlock → 5-second forced pause → apps unlock but streak breaks and Nimbus turns sad/rainy.
 
 ---
 
@@ -58,51 +56,44 @@ Sky exists for users who **want the friction**. The verification has to be genui
 - Apple's system shows opaque tokens — Sky cannot name apps directly, only the user sees the names
 - Selection persists across app launches and iOS updates (with re-pick fallback if tokens become invalid)
 
-### 4.2 Time Limit Configuration
-Two modes, user choice:
-- **Combined limit:** Single total budget across all selected apps (1, 2, or 3 hours)
-- **Per-app limits:** Individual budget for each selected app (15 min to 4 hours, in 15-minute steps)
-- The limit is **per session**: it is spent, earned back by a verification, and spent again. A day can hold several sessions
-- Everything resets at **midnight local time** daily
+### 4.2 Lock Time Configuration
+- **Lock time:** when the selected apps pause each day — every 30 minutes from 5:00 AM to 11:00 PM, default 9:00 AM
+- **Lock days (Pro):** which weekdays the lock applies (e.g. weekends off). Free users lock every day
+- Moving the lock time to an hour already past today applies immediately; finishing first-time setup after today's lock time waives only that first day
 
 ### 4.3 Screen Time Enforcement
 - Built on `FamilyControls`, `DeviceActivity`, and `ManagedSettings` frameworks
-- When threshold is hit, selected apps are shielded with a custom Sky UI
+- Two daily schedules, no usage events: a midnight rollover and a lock-time schedule whose start shields the selection
+- If the lock-time callback is missed, the app applies the lock on its next foreground
 - App icon launch is replaced by the shield until the user verifies
 
-### 4.4 Outdoor Video Verification (Strict)
-30-second video required, captured live in-app, never uploaded.
+### 4.4 Outdoor Verification
+A **5-second clip**, captured live in-app, tilting from the ground up to the sky. Never uploaded; deleted right after processing.
 
-Sky verifies all of the following on-device:
-- **GPS:** location accuracy ≤ 25m and horizontal speed > 0.3 m/s at any point during recording
-- **Barometric pressure:** detectable change in relative altitude over 30 seconds (walking)
-- **Ambient light:** camera exposure/ISO indicates daylight-level brightness (or moonlit, with explicit night mode opt-in)
-- **Scene classification:** `VNClassifyImageRequest` returns "outdoor," "sky," "tree," "grass," "park," "street," or similar in ≥ 80% of sampled frames
-- **Sky pixel detection:** at least one segment of the video has ≥ 15% sky-colored pixels
-- **Spoof check:** `CLLocation.sourceInformation.isProducedByAccessory` is false (rejects developer-injected GPS)
-- **Time-of-day check:** verification must occur between sunrise and sunset (with user-toggleable night mode)
+Three checks, all on-device (thresholds live in `VerificationThresholds.swift` and are placeholders until field-tested):
+1. **GPS:** not spoofed (`sourceInformation`), horizontal accuracy ≤ 50 m. A cached fix up to 60 s old is accepted, and Sky waits up to 6 s after the clip for one
+2. **Steps:** ≥ 200 steps in the 15 minutes before recording, read from `CMPedometer` history — the walk happens first, Sky needn't be open. Waived on devices without step counting
+3. **Outdoor scene (daylight only):** ≥ 60% of sampled frames classify outdoor *and* the best frame shows ≥ 10% sky. After civil dusk this check is waived and GPS + steps decide — which is what makes evening verification work
 
-User sees the prompts during recording ("Point at the sky for 5 seconds", "Now slowly turn around"). All processing happens on-device using Apple Vision and Core Location.
+The intro screen shows a live step count toward the goal.
 
 ### 4.5 Emergency Unlock (Typed-Reason Path)
-- Accessible from the shield UI as "I can't go outside right now"
+- Accessible from the shield UI as "Emergency unlock"
 - Opens a modal requiring the user to type (not paste) why they need the app
 - Minimum 20 characters; maximum 200 characters
 - "Unlock" button is disabled until the user has waited 5 seconds and met character minimum
 - Paste action disabled at the text field level (UIViewRepresentable override of `canPerformAction(_:withSender:)`)
-- On confirmation: apps unlock, streak resets, Nimbus turns into a sad rainy cloud for the rest of the day
+- On confirmation: apps unlock until the next lock time, streak resets, Nimbus turns into a sad rainy cloud for the rest of the day
 - Reason text logged locally so the user sees a weekly "Top reasons you unlocked" insight
 
-### 4.6 Daily Midnight Reset
-- At 00:00 local time:
-  - Daily usage counters and the session ladder reset to zero
-  - Shields reapply if previously unlocked via verification or emergency
-  - Streaks update based on whether a verification or emergency unlock occurred yesterday
+### 4.6 Daily Rollover
+- At 00:00 local time streaks update based on whether a verification or emergency unlock happened yesterday, and the per-day flags reset
+- **Midnight never touches the lock.** An unverified day stays paused until the user goes outside; a verified one stays open until the next lock time
 
 ### 4.7 Nimbus the Mascot
 Mascot has 5 visual states tied directly to user behavior:
 - **Cloudy-grey (default indoor):** Default appearance when limits are active and user hasn't verified today
-- **Fluffy white (idle):** Normal state when user is under budget
+- **Fluffy white (idle):** Normal state before the lock time, with apps open
 - **Sunny (happy):** Right after a successful outdoor verification (24-hour state)
 - **Rainbow (streak celebration):** When user hits a milestone streak (3, 7, 14, 30, 60, 100 days)
 - **Rainy (sad):** When user uses an emergency unlock or breaks a streak
@@ -128,8 +119,8 @@ Mascot is built as composable SwiftUI shapes plus optional Lottie file for v1.1+
 All progress syncs across user's devices via CloudKit private database. No leaderboards or social in v1.0.
 
 ### 4.9 Pricing & Paywall
-- **Free tier:** Block up to 2 apps, combined-limit mode only, daily verification, mascot, streaks
-- **Sky Pro:** **$19.99 one-time** — unlimited apps, per-app limits, all badges, all mascot states, full insights, 24-hour pause
+- **Free tier:** Lock up to 2 apps, every day, daily verification, mascot, streaks
+- **Sky Pro:** **$19.99 one-time** — unlimited apps, lock days (e.g. weekends off), all badges, all mascot states, full insights, 24-hour pause
 - **One SKU only.** A single non-consumable (`com.sky.pro.lifetime`). No subscriptions, no tiers, no founder's edition. The target user is price-sensitive and subscription-averse (§2), so the pitch is "pay once, yours forever" rather than a tier ladder.
 - **No free trial.** Apple does not offer introductory offers on non-consumables; the free tier serves that purpose.
 - Regional pricing is configured per-storefront in App Store Connect. A launch discount is done by shipping at a lower base price and raising it later — not by adding a second SKU.
@@ -138,19 +129,19 @@ All progress syncs across user's devices via CloudKit private database. No leade
 
 ### 4.10 Settings
 - Manage selected apps (re-open FamilyActivityPicker)
-- Manage limits (mode, durations)
+- Manage the lock time and (Pro) lock days
 - Pause Sky for 24 hours (Pro only, max once per week, requires emergency-style typed confirmation)
-- Notifications (toggle the 30-minute warning and the streak warning)
+- Notifications (toggle the streak warning; the lock notification is always on)
 - Sign in with Apple (for CloudKit sync verification)
 - Manage subscription (deep link to App Store)
 - Restore purchases
 - Privacy policy, terms, support email, version
 
 ### 4.11 Notifications (local only, v1.0)
-- ~~**8:30 AM local:** morning hello~~ — **removed.** A daily scheduled ping inviting the user to pick up their phone works against an app built to reduce interruptions. Sky's remaining notifications are all consequences of the user's own usage, capped at one of each per session.
-- **30 minutes before block:** "You have 30 minutes left on Instagram/TikTok/etc." (toggleable)
-- **Block start:** "Selected apps are blocked. Go outside to unlock them." (always on)
+- **Lock time:** "Apps are paused — Nimbus is waiting outside for you ☁" (always on, once a day; tap opens verification)
+- **Shield button tap:** "Tap to head outside and unlock your apps ☁" — the shield can't open Sky directly, so a tap posts this and the notification opens the right screen
 - **Streak warning at 10 PM:** "Don't break your 14-day streak — verify or it resets at midnight." (toggleable, Pro only)
+- ~~30-minute warning / "Time's up"~~ — removed with the usage budget. ~~8:30 AM morning hello~~ — removed earlier
 
 ---
 

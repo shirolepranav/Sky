@@ -1,14 +1,11 @@
 // ShieldService.swift
 // Named wrapper around ManagedSettingsStore shield operations so shield
-// clearing is never duplicated inline. Called from VerificationSuccessView
-// after a successful outdoor verification.
-// Tech Spec §7.6, Roadmap Phase 10.
+// clearing is never duplicated inline (Tech Spec §7.6; DAILY_LOCK_PLAN.md Phase B).
 //
-// The shield is *applied* by SkyDeviceActivityMonitor, in another process, on a
-// callback that fires once per event per day. That makes the block a one-shot:
-// anything that drops the shield — an OS quirk, an invalidated token, a bug like
-// the late midnight reset that MidnightResetRecovery used to perform — left the
-// apps open until the next real midnight, because nothing ever put it back.
+// The shield is normally *applied* by SkyDeviceActivityMonitor at the daily lock
+// time, in another process, on a callback that fires once a day. Anything that
+// drops the shield — an OS quirk, an invalidated token — or a missed callback
+// would leave the apps open, because nothing else puts it back.
 //
 // `reconcile` closes that. Today's persisted state is the authority on whether
 // apps should be blocked; the ManagedSettings store is just a cache of it, and
@@ -21,111 +18,91 @@ import ManagedSettings
 
 enum ShieldService {
 
-    /// Clears all active application and category shields, allowing the user's
-    /// selected apps to open until the next session ends (or, for an emergency
-    /// unlock or a pause, until the midnight reset).
+    /// Clears all active application and category shields, opening the selected
+    /// apps until the next daily lock.
     ///
-    /// The four legitimate callers are a passed verification, a completed
-    /// emergency unlock, a Pro pause, and the midnight reset. Nothing else may
-    /// call this — `source` is recorded so a fifth caller is visible on-device.
-    static func unlockApps(
-        source: ShieldAudit.Source,
-        store: SharedDefaults = SharedDefaults()
-    ) {
+    /// The legitimate callers are a passed verification, a completed emergency
+    /// unlock, a Pro pause, and the debug menu. `source` is recorded so any other
+    /// caller is visible on-device.
+    ///
+    /// ⚠️ Keep assigning `nil` rather than subtracting a token set — the nil also
+    /// clears orphaned tokens iOS has silently reissued (see CLAUDE.md Gotchas).
+    static func unlockApps(source: ShieldAudit.Source) {
         let managed = ManagedSettingsStore()
         managed.shield.applications = nil
         managed.shield.applicationCategories = nil
-        store.shieldedAppTokens = nil
         ShieldAudit.record(.cleared, source: source, appCount: 0)
     }
 
-    /// Re-applies the shield to exactly `tokens` (plus `categories`, which only
-    /// combined mode uses). Mirrors the write in
-    /// `SkyDeviceActivityMonitor.eventDidReachThreshold`.
-    static func applyShield(
-        tokens: Set<ApplicationToken>,
-        categories: Set<ActivityCategoryToken>,
-        source: ShieldAudit.Source,
-        store: SharedDefaults = SharedDefaults()
-    ) {
+    /// Shields the whole selection. Mirrors the write in
+    /// `SkyDeviceActivityMonitor.applyLock`.
+    static func applyShield(selection: FamilyActivitySelection, source: ShieldAudit.Source) {
         let managed = ManagedSettingsStore()
+        let tokens = selection.applicationTokens
         managed.shield.applications = tokens.isEmpty ? nil : tokens
-        managed.shield.applicationCategories = categories.isEmpty
+        managed.shield.applicationCategories = selection.categoryTokens.isEmpty
             ? nil
-            : .specific(categories)
-        store.shieldedAppTokens = try? JSONEncoder().encode(tokens)
+            : .specific(selection.categoryTokens)
         ShieldAudit.record(.applied, source: source, appCount: tokens.count)
     }
 
-    /// Restores the shield when today's state says the user should be blocked but
-    /// the ManagedSettings store disagrees.
+    /// Brings the shield in line with today's state, on every foreground and
+    /// whenever the verification flow is left without a pass.
     ///
-    /// Call on every foreground and whenever the verification flow is left
-    /// without a pass — backing out of verification must not open the apps.
+    /// 1. If today's lock is overdue — the extension's lock-time callback never
+    ///    ran — mark the day blocked (`LockPolicy.lockIsOverdue`).
+    /// 2. If the day is blocked but the ManagedSettings store isn't shielding,
+    ///    re-apply.
     ///
-    /// Never clears: a `false` here means "leave it alone", not "unshield". If the
-    /// day's state says unblocked, whatever unblocked it already cleared the store.
+    /// Never clears: a `false` here means "leave it alone", not "unshield".
     ///
     /// - Returns: true if a shield was (re-)applied.
     @discardableResult
-    static func reconcile(store: SharedDefaults = SharedDefaults()) -> Bool {
+    static func reconcile(store: SharedDefaults = SharedDefaults(), now: Date = Date()) -> Bool {
+        guard let selection = store.selection else { return false }
+
+        let caughtUp = catchUpMissedLock(store: store, now: now)
         guard shouldBeBlocked(store: store) else { return false }
 
-        let tokens = tokensToRestore(store: store)
-        // Per-app mode with no recorded token set means we cannot tell which app
-        // ran out of budget. Shielding the whole selection would lock apps that
-        // are still well inside their own limit, which is worse than waiting for
-        // the next threshold event — so leave it to the extension.
-        guard !tokens.isEmpty else { return false }
-
         let managed = ManagedSettingsStore()
-        let categories = categoriesToRestore(store: store)
-        let alreadyShielded = (managed.shield.applications ?? []).isSuperset(of: tokens)
+        let alreadyShielded = (managed.shield.applications ?? [])
+            .isSuperset(of: selection.applicationTokens)
+            && (selection.categoryTokens.isEmpty || managed.shield.applicationCategories != nil)
         guard !alreadyShielded else { return false }
 
-        applyShield(tokens: tokens, categories: categories, source: .reconcile, store: store)
+        applyShield(selection: selection, source: caughtUp ? .lockCatchUp : .reconcile)
         return true
     }
 
     // MARK: - Decision (internal so unit tests can drive it without ManagedSettings)
 
-    /// Today's state, in one place. Mirrors the precedence the monitor extension
-    /// applies: a pause outranks everything, then the emergency unlock.
-    ///
-    /// ⚠️ `didVerifyToday` is deliberately **not** consulted. It used to be, and
-    /// that single line was what made a passed verification open the apps until
-    /// midnight — one 30-second video at 9am bought fifteen unmetered hours, which
-    /// is the opposite of what Sky is for. A verification now clears
-    /// `isCurrentlyBlocked` and buys one session; the next rung of the ladder sets
-    /// the flag again once that session's usage is spent
-    /// (`SkyDeviceActivityMonitor`). `didVerifyToday` still drives the streak, the
-    /// mascot, and today's copy — just not the shield.
-    ///
-    /// An emergency unlock does still cover the whole day. It is friction-gated and
-    /// streak-costing already; making someone retype a reason every two hours
-    /// because they genuinely cannot get outside is punishment, not friction.
-    static func shouldBeBlocked(store: SharedDefaults) -> Bool {
-        guard store.isCurrentlyBlocked else { return false }
-        guard !store.isPaused else { return false }
-        guard !store.didEmergencyUnlockToday else { return false }
+    /// Sets `isCurrentlyBlocked` when today's lock is overdue. Returns true if it did.
+    @discardableResult
+    static func catchUpMissedLock(store: SharedDefaults, now: Date = Date()) -> Bool {
+        guard !store.isCurrentlyBlocked else { return false }
+        // Roll over first so yesterday's verification can't count as today's.
+        MidnightResetRecovery.rollDayOverBeforeWritingTodayState(store: store, now: now)
+        let overdue = LockPolicy.lockIsOverdue(
+            now: now,
+            lockTimeMinutes: store.lockTimeMinutes,
+            isArmed: store.lockArmedAt != nil,
+            isPaused: store.isPaused,
+            unlockedToday: store.didVerifyToday || store.didEmergencyUnlockToday,
+            lockWeekdays: store.lockWeekdays,
+            skipDay: store.lockSkipDay
+        )
+        guard overdue else { return false }
+        store.isCurrentlyBlocked = true
+        store.stampTodayState(now: now)
         return true
     }
 
-    /// The tokens the monitor extension actually shielded, falling back to the
-    /// whole selection in combined mode (where "the budget" covers all of it).
-    static func tokensToRestore(store: SharedDefaults) -> Set<ApplicationToken> {
-        if let data = store.shieldedAppTokens,
-           let tokens = try? JSONDecoder().decode(Set<ApplicationToken>.self, from: data),
-           !tokens.isEmpty {
-            return tokens
-        }
-        guard store.limitMode != "perApp" else { return [] }
-        return store.selection?.applicationTokens ?? []
-    }
-
-    /// Categories carry no per-app budget, so only combined mode shields them.
-    static func categoriesToRestore(store: SharedDefaults) -> Set<ActivityCategoryToken> {
-        guard store.limitMode != "perApp" else { return [] }
-        return store.selection?.categoryTokens ?? []
+    /// Today's state, in one place. A pause outranks the block.
+    ///
+    /// Verification and emergency unlock both clear `isCurrentlyBlocked`
+    /// themselves, and it stays clear until the next lock time — so neither needs
+    /// consulting here.
+    static func shouldBeBlocked(store: SharedDefaults) -> Bool {
+        store.isCurrentlyBlocked && !store.isPaused
     }
 }

@@ -23,7 +23,7 @@ This document describes Sky's iOS-only implementation: architecture, frameworks,
 | **SwiftUI** | All UI (with two UIKit-bridged components) |
 | **FamilyControls** | User authorization (`AuthorizationCenter`) and app picker (`FamilyActivityPicker`) |
 | **ManagedSettings** | Applying shields to user-selected apps (`ManagedSettingsStore.shield.applications`) |
-| **DeviceActivity** | Monitoring time spent and triggering threshold events (`DeviceActivityCenter`, `DeviceActivitySchedule`, `DeviceActivityEvent`) |
+| **DeviceActivity** | Daily schedules that trigger the midnight rollover and the morning lock (`DeviceActivityCenter`, `DeviceActivitySchedule`) — no usage events |
 | **AVFoundation** | 30-second video recording (`AVCaptureSession`) |
 | **Vision** | Scene classification (`VNClassifyImageRequest`), sky segmentation (`VNGenerateForegroundInstanceMaskRequest` adapted, plus color analysis fallback) |
 | **CoreLocation** | GPS for outdoor signal (`CLLocationManager`, accuracy and `sourceInformation.isProducedByAccessory`) |
@@ -58,7 +58,7 @@ Sky ships as one app target and **three extension targets**:
 
 ```
 SkyApp (main iOS app)
-├── DeviceActivityMonitorExtension (background — receives threshold callbacks)
+├── DeviceActivityMonitorExtension (background — receives the daily interval-start callbacks)
 ├── ShieldConfigurationExtension (UI — renders the shield when user taps a blocked app)
 └── ShieldActionExtension (UI — handles "Verify outdoor" and "Emergency unlock" buttons)
 ```
@@ -223,98 +223,52 @@ Apple's picker handles all UI — Sky never sees app names or bundle IDs, only o
 
 ### 7.3 Monitoring Setup
 
+*Rewritten 2026-10-14 for the daily lock (`DAILY_LOCK_PLAN.md`). The old ladder of
+usage thresholds is gone — it fired notifications at random.*
+
 ```swift
-import DeviceActivity
-
-let center = DeviceActivityCenter()
-
-// Daily schedule resetting at midnight local time
-let schedule = DeviceActivitySchedule(
-    intervalStart: DateComponents(hour: 0, minute: 0),
-    intervalEnd: DateComponents(hour: 23, minute: 59),
-    repeats: true
-)
-
-// Combined mode: a LADDER of events, one per session.
-//
-// A DeviceActivityEvent threshold fires at most once per schedule interval, and
-// Sky registers one interval per day. A single "limit reached" event therefore
-// cannot fire again after the user verifies and unlocks — which is why a pass
-// used to buy the rest of the day. Pre-registering rungs at 1×, 2×, 3×… the
-// session length gives each subsequent block its own event, already armed and
-// counting while the user is unlocked.
-var events: [DeviceActivityEvent.Name: DeviceActivityEvent] = [:]
-for rung in 1...DeviceActivityService.ladderDepth(sessionSeconds: combinedLimitSeconds) {
-    events[.sessionLimit(rung: rung)] = DeviceActivityEvent(
-        applications: selection.applicationTokens,
-        categories: selection.categoryTokens,
-        threshold: DateComponents(second: combinedLimitSeconds * rung),
-        includesPastActivity: true
-    )
-    // Plus a paired `.sessionWarning(rung:)` 30 minutes earlier, when the
-    // session is longer than 30 minutes (otherwise rung n's warning would land
-    // on or before rung n−1's limit).
-}
-
-try center.startMonitoring(.daily, during: schedule, events: events)
+// Two schedules, no events. `DeviceActivityService.startMonitoring()`:
+try center.startMonitoring(.daily, during: makeDailySchedule(), events: [:])   // 00:00–23:59
+try center.startMonitoring(.lock,  during: makeLockSchedule(lockTimeMinutes:), events: [:]) // lock–23:59
 ```
 
-Ladder depth trades against session length so the horizon stays near 12 hours of
-cumulative usage, capped at 8 rungs: 1 h → 8, 2 h → 6, 3 h → 4. Per-app mode
-divides a ~20-event budget across the selected apps, degrading to one rung each
-when many apps are configured.
-
-When a threshold is reached, iOS calls
-`SkyDeviceActivityMonitor.eventDidReachThreshold(_:activity:)` in the extension
-target. The extension records the highest rung it has acted on per ladder in
-`last_fired_rungs` and ignores anything at or below it — iOS re-delivers already
-crossed thresholds whenever monitoring re-arms with `includesPastActivity: true`,
-and acting on a replay would re-shield apps the user had just earned back.
-
-`configFingerprint` carries a `v2|` prefix for this event shape, so every
-installed device re-registers once on the first foreground after the update.
+- The lock picker stops at 23:00 because DeviceActivity rejects intervals under 15 minutes.
+- `configFingerprint` (`v3|os…|lock…|selection`) makes the every-foreground call a no-op
+  unless something changed. Every registration stamps `lock_armed_at`.
+- The **first** registration after setup, when today's lock time has already passed,
+  sets `lock_skip_day` so the user isn't locked out mid-onboarding. Later re-arms get
+  no such pass — moving the lock to an hour already gone must not dodge the day.
 
 ### 7.4 Applying the Shield
 
-In `SkyDeviceActivityMonitor`:
+`SkyDeviceActivityMonitor.intervalDidStart`:
+- **Both activities** first run the midnight rollover (idempotent on `today_reset_token`):
+  snapshot yesterday's flags for streaks, clear `today_verified` / `today_emergency_used`.
+  It **never** touches the shield or `today_blocked` — an unverified day stays locked.
+- **`.lock`** then shields the whole selection and posts "Apps are paused", unless
+  `LockPolicy.shouldLock` says skip (paused, verified or emergency-unlocked today, a day
+  off, `lock_skip_day`) or the start arrived within 60 s of registration (iOS announcing
+  the schedule, not a new day).
 
-```swift
-import ManagedSettings
-
-override func eventDidReachThreshold(_ event: DeviceActivityEvent.Name, activity: DeviceActivityName) {
-    let selection = decodeSelectionFromSharedDefaults()
-    let store = ManagedSettingsStore()
-    store.shield.applications = selection.applicationTokens
-    store.shield.applicationCategories = .specific(selection.categoryTokens)
-    SharedDefaults().isCurrentlyBlocked = true
-}
-
-override func intervalDidStart(for activity: DeviceActivityName) {
-    // Called at midnight local time — clear shields and reset day
-    let store = ManagedSettingsStore()
-    store.shield.applications = nil
-    store.shield.applicationCategories = nil
-    SharedDefaults().isCurrentlyBlocked = false
-    SharedDefaults().didVerifyToday = false
-    SharedDefaults().didEmergencyUnlockToday = false
-}
-```
+`ShieldService.reconcile()` runs on every foreground. It applies an *overdue* lock
+(`LockPolicy.lockIsOverdue` — the callback was missed or ignored) and restores a
+shield the store lost. It never clears.
 
 ### 7.5 Custom Shield UI
 
 `SkyShieldConfiguration` extension target overrides `configuration(shielding:)` and `configuration(shielding:in:)` to return a `ShieldConfiguration` with:
 - Mascot image (Nimbus)
-- Title: `"\(AppBranding.appName) — Time's up"`
-- Subtitle: `"\(AppBranding.mascotName) is waiting outside for you ☁️"`
-- Primary button: `"Go outside to unlock"` (action: deep link back to main app's verification flow)
-- Secondary button: `"I can't go outside right now"` (action: deep link to emergency unlock)
+- Title: `"Apps are paused"` · Subtitle: `"\(AppBranding.mascotName) is waiting outside for you ☁"`
+- Primary button: `"Unlock with \(AppBranding.appName)"` → verification
+- Secondary button: `"Emergency unlock"` → emergency flow
+- Every colour is adaptive (light/dark pairs of the SkyColor tokens). A fixed light-mode ink on the dark system shield was unreadable
 
 `SkyShieldAction` handles button taps via `handle(action:for:completionHandler:)`.
 
 ⚠️ Two things here are easy to get wrong and fail *silently*:
 
 1. **The extension point is `com.apple.ManagedSettings.shield-action-service`** — note the missing `UI`. Shield *configuration* lives under `ManagedSettingsUI`, shield *action* does not. The wrong string builds, signs and embeds cleanly; PluginKit simply never matches the appex, so the delegate is never invoked and both buttons are inert. `ShieldActionExtensionPointTests` pins it against the built product.
-2. **An app extension cannot launch its container app.** `UIApplication.shared` is unavailable, so there is no `sky://verify` open from here. The extension writes `pending_deep_link` ("verify" / "emergency") to the App Group and returns `.close`; `SkyApp.consumePendingDeepLink()` reads and clears it on the next foreground. The `sky://` scheme remains registered for external callers.
+2. **An app extension cannot launch its container app.** `UIApplication.shared` is unavailable, so there is no `sky://verify` open from here. The extension writes `pending_deep_link` ("verify" / "emergency") to the App Group, **posts a local notification carrying `sky_deep_link`**, and returns `.close`. Tapping the notification reaches `SkyNotificationRouter` (the notification-center delegate) which presents the destination; `SkyApp.consumePendingDeepLink()` covers a user who opens Sky by hand. Without the notification, `.close` dropped the user on the Home screen and the buttons looked dead.
 
 ### 7.6 Unlocking Apps
 
@@ -325,8 +279,10 @@ let store = ManagedSettingsStore()
 store.shield.applications = nil
 store.shield.applicationCategories = nil
 SharedDefaults().isCurrentlyBlocked = false
-SharedDefaults().didVerifyToday = true
+SharedDefaults().didVerifyToday = true   // also skips today's lock if it hasn't landed yet
 ```
+
+The apps stay open until the next lock time.
 
 ---
 
@@ -380,39 +336,38 @@ Require at least one frame in the video to have `skyPercent ≥ 0.15`.
 
 ### 8.4 Sensor Aggregation
 
+*Rewritten 2026-10-14 (`DAILY_LOCK_PLAN.md` Phase E). The clip is 5 seconds.*
+
 ```swift
 struct SensorReading {
-    let gpsAccuracyAtBest: CLLocationAccuracy   // smallest accuracy value during recording
-    let maxHorizontalSpeed: Double               // m/s
-    let altitudeChangeMeters: Double             // |max - min| over recording window
-    let medianExposureBias: Float                // proxy for ambient brightness
-    let timeOfDay: Date                          // local time when recording started
-    let gpsSpoofed: Bool                         // isProducedByAccessory at any sample
-    let sunriseSunsetCheckPassed: Bool           // user is in daylight window unless night mode opted-in
+    let gpsAccuracyAtBest: CLLocationAccuracy  // best fix; cached ≤ 60 s accepted, +6 s grace after the clip
+    let timeOfDay: Date
+    let gpsSpoofed: Bool                       // sourceInformation flags on any sample
+    let isDaylight: Bool                       // civil dawn → civil dusk (SolarCalculator)
+    let recentSteps: Int?                      // CMPedometer, last 15 min; nil = device can't count
+    let motionDenied: Bool
+    let bestLocationTag: String?               // rounded to 0.01°
 }
 ```
 
 ### 8.5 Decision Engine
 
-The verification passes if ALL of the following are true:
-
 ```swift
-func verify(sensors: SensorReading, frameScores: [Double], maxSkyPercent: Double) -> Result<Verified, FailureReason> {
-    if sensors.gpsSpoofed { return .failure(.gpsSpoofingDetected) }
-    if !sensors.sunriseSunsetCheckPassed { return .failure(.outsideDaylightWindow) }
-    if sensors.gpsAccuracyAtBest > 25 { return .failure(.poorGPSSignal) }    // probably indoors
-    if sensors.maxHorizontalSpeed < 0.3 && sensors.altitudeChangeMeters < 0.5 {
-        return .failure(.notEnoughMovement)
+func evaluate(sensor: SensorReading, frame: FrameAnalysisResult) -> Result<Void, FailureReason> {
+    if sensor.gpsSpoofed { return .failure(.gpsSpoofingDetected) }
+    if sensor.gpsAccuracyAtBest > 50 { return .failure(.poorGPSSignal) }
+    if sensor.motionDenied { return .failure(.motionAccessNeeded) }
+    if let steps = sensor.recentSteps, steps < 200 { return .failure(.notEnoughSteps) }
+    if sensor.isDaylight,
+       frame.outdoorFrameRatio < 0.6 || frame.maxSkyPixelPercent < 0.10 {
+        return .failure(.sceneNotOutdoor)          // waived after dusk
     }
-    if sensors.medianExposureBias < -1.0 { return .failure(.notBrightEnough) }
-    let outdoorFrameRatio = frameScores.filter { $0 > 0.5 }.count / Double(frameScores.count)
-    if outdoorFrameRatio < 0.8 { return .failure(.sceneNotOutdoor) }
-    if maxSkyPercent < 0.15 { return .failure(.noSkyVisible) }
-    return .success(Verified())
+    return .success(())
 }
 ```
 
-Thresholds are tunable from a single `VerificationThresholds.swift` file. They should be re-measured in 5+ real-world environments before launch (see Roadmap Phase 10).
+Thresholds live only in `VerificationThresholds.swift` and are placeholders until
+re-measured on real walks in 5+ environments.
 
 ### 8.6 Cleanup
 
@@ -560,28 +515,15 @@ Conflict resolution: last-writer-wins for counters; union for `unlockedBadges`. 
 
 ## 12. Local Notifications
 
-```swift
-import UserNotifications
+All local, no APNs. Three kinds (PRD §4.11):
+- **Lock** — posted by `SkyDeviceActivityMonitor` when the `.lock` interval applies
+  the shield; `userInfo["sky_deep_link"] = "verify"`.
+- **Shield-button hand-off** — posted by `SkyShieldAction`; tap routes via
+  `SkyNotificationRouter`.
+- **Streak at risk (Pro, 10 PM)** — calendar trigger from `LocalNotificationScheduler`.
 
-let center = UNUserNotificationCenter.current()
-try await center.requestAuthorization(options: [.alert, .sound])
-
-// (The 8:30 AM morning reminder was removed — see PRD §4.11.)
-// Retired identifiers must still be cancelled actively: the old request was
-// registered with `repeats: true` and survives on every upgrading device.
-// LocalNotificationScheduler.Retired.all carries the list.
-var morning = DateComponents()
-morning.hour = 8
-morning.minute = 30
-let trigger = UNCalendarNotificationTrigger(dateMatching: morning, repeats: true)
-let content = UNMutableNotificationContent()
-content.title = "Good morning"
-content.body = "\(AppBranding.mascotName) is ready for today's outdoor break ☁️"
-let request = UNNotificationRequest(identifier: "morning", content: content, trigger: trigger)
-try await center.add(request)
-```
-
-All notifications are local-only. No remote push, no APNs token registration.
+`LocalNotificationScheduler.Retired.all` still cancels identifiers from removed
+notifications (the 8:30 AM hello) on upgrading devices.
 
 ---
 
@@ -602,7 +544,7 @@ All notifications are local-only. No remote push, no APNs token registration.
 |---|---|
 | Video upload | Videos are written to `FileManager.default.temporaryDirectory`, processed locally, then `try FileManager.default.removeItem(at:)` immediately after verification result |
 | GPS coordinates | Used only for accuracy check; rounded to 0.01° (≈1km) before storage; the rounded value is the only thing persisted, for the "Wanderer" badge |
-| Screen Time data | Cannot leave the device per Apple's API — Sky never tries to read raw usage data; only relies on threshold callbacks |
+| Screen Time data | Cannot leave the device per Apple's API — Sky never tries to read raw usage data; only relies on scheduled interval callbacks |
 | Emergency-unlock reasons | Stored in App Group container only; never synced to CloudKit, never sent to any server |
 | Analytics | App Store Connect's first-party analytics only; no SDKs |
 | Crash reporting | Xcode Organizer's crash reports only; no Crashlytics/Sentry |

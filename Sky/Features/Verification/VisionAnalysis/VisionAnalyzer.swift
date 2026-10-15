@@ -28,7 +28,7 @@ actor VisionAnalyzer {
     /// Downscale frames to this size before classification (faster than 1080p, still accurate).
     private static let frameSize = CGSize(width: 480, height: 270)
 
-    /// Sample every Nth frame. At 30 fps over 30 s: 900 frames ÷ 5 = 180 analysed.
+    /// Sample every Nth frame. At 30 fps over a 5 s clip: 150 frames ÷ 5 = 30 analysed.
     private static let frameStep: Int = 5
 
     // MARK: - Public API

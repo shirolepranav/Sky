@@ -35,37 +35,34 @@ enum ShieldAudit {
         case applied
         case cleared
         /// A local notification was posted. Makes "why did Sky buzz me at 11am?"
-        /// answerable — the source says which threshold event caused it.
+        /// answerable.
         case notified
-        /// A notification was *not* posted because one had already gone out today.
-        /// Recording the suppression is the whole point: a silent day and a day
-        /// where iOS replayed six thresholds look identical otherwise.
-        case suppressed
+        /// The scheduled lock fired but did not apply (paused, already unlocked
+        /// today, a day off, or the callback that just follows a re-arm).
+        /// Recording it is the point: a silent morning and a skipped lock look
+        /// identical otherwise.
+        case skipped
     }
 
     /// Who touched the shield. Add a case rather than reusing a near-miss —
     /// the whole value of the log is telling these apart.
     enum Source: String {
-        /// DeviceActivityMonitor — a usage threshold was reached.
-        case monitorThreshold = "monitor.threshold"
-        /// DeviceActivityMonitor — the daily interval rolled over.
-        case monitorIntervalStart = "monitor.intervalStart"
+        /// DeviceActivityMonitor — the daily lock time arrived.
+        case monitorLock = "monitor.lock"
+        /// ShieldService.reconcile applying a lock whose callback never ran.
+        case lockCatchUp = "lock.catchUp"
         /// A passed outdoor verification (S-VER-06).
         case verificationSuccess = "verification.success"
         /// The typed-reason emergency unlock (S-EMG-02).
         case emergency
         /// A 24-hour Pro pause (S-SET-06).
         case pause
-        /// The app-side late midnight reset (MidnightResetRecovery).
-        case midnightRecovery
         /// ShieldService.reconcile restoring a shield that had gone missing.
         case reconcile
         /// The debug menu. Should never appear in a release build.
         case debug
-        /// The "30 minutes left" notification (paired with `.notified`/`.suppressed`).
-        case notifWarning = "notif.warning"
-        /// The "Time's up" notification (paired with `.notified`/`.suppressed`).
-        case notifBlockStart = "notif.blockStart"
+        /// The "Apps are paused" lock notification.
+        case notifLock = "notif.lock"
     }
 
     // MARK: - Writing
@@ -130,7 +127,7 @@ enum ShieldAudit {
     /// Just the notification entries, newest first — the trail to read when a
     /// notification arrives at a time the user can't account for.
     static func notificationLines(defaults: UserDefaults? = nil) -> [String] {
-        let notificationActions = [Action.notified.rawValue, Action.suppressed.rawValue]
+        let notificationActions = [Action.notified.rawValue]
         let formatter = DateFormatter()
         formatter.dateFormat = "MMM d HH:mm:ss"
         return entries(defaults: defaults)

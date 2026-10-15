@@ -1,11 +1,13 @@
 // PermissionPreflightView.swift
-// S-VER-02 — Checks camera/mic/location authorization and routes accordingly.
+// S-VER-02 — Checks camera/mic/location/motion authorization and routes accordingly.
+// Motion & Fitness feeds the step check (DAILY_LOCK_PLAN.md Phase E).
 // S-PERM-04 rationale is embedded as a private view shown before the first
 // permission request.
 // Sky_App_Workflow.md §Part 2 S-VER-02, S-PERM-04.
 
 import AVFoundation
 import CoreLocation
+import CoreMotion
 import SwiftUI
 
 // MARK: - ViewModel
@@ -17,9 +19,10 @@ final class PermissionPreflightViewModel: ObservableObject {
     @Published var camera: PermissionStatus = .notDetermined
     @Published var microphone: PermissionStatus = .notDetermined
     @Published var location: PermissionStatus = .notDetermined
+    @Published var motion: PermissionStatus = .notDetermined
 
     var allGranted: Bool {
-        camera == .granted && microphone == .granted && location == .granted
+        camera == .granted && microphone == .granted && location == .granted && motion == .granted
     }
 
     private let locationManager = CLLocationManager()
@@ -28,6 +31,17 @@ final class PermissionPreflightViewModel: ObservableObject {
         camera    = map(AVCaptureDevice.authorizationStatus(for: .video))
         microphone = map(AVCaptureDevice.authorizationStatus(for: .audio))
         location  = mapLocation(locationManager.authorizationStatus)
+        motion    = mapMotion()
+    }
+
+    /// A device that can't count steps has nothing to grant — the check is waived.
+    private func mapMotion() -> PermissionStatus {
+        guard CMPedometer.isStepCountingAvailable() else { return .granted }
+        switch CMPedometer.authorizationStatus() {
+        case .authorized: return .granted
+        case .denied, .restricted: return .denied
+        default: return .notDetermined
+        }
     }
 
     private func map(_ status: AVAuthorizationStatus) -> PermissionStatus {
@@ -50,6 +64,8 @@ final class PermissionPreflightViewModel: ObservableObject {
         await AVCaptureDevice.requestAccess(for: .video)
         await AVCaptureDevice.requestAccess(for: .audio)
         locationManager.requestWhenInUseAuthorization()
+        // CMPedometer has no request API — the first query raises the prompt.
+        _ = await SensorRecorder.recentSteps()
         // Give CLLocationManager a moment to update (it's callback-based)
         try? await Task.sleep(for: .milliseconds(500))
         refresh()
@@ -70,15 +86,16 @@ struct PermissionPreflightView: View {
             VStack(spacing: SkySpacing.s6) {
                 Spacer()
 
-                NimbusView(state: .fluffyWhite, size: 160)
+                NimbusView(state: .fluffyWhite, size: 120)
 
-                Text("Three quick permissions.")
+                Text("A few quick permissions.")
                     .skyText(.titleL)
                     .multilineTextAlignment(.center)
 
-                Text("Sky needs camera, microphone, and location to verify you're outside.")
+                Text("Sky uses the camera, location, and your step count to check you're outside — all on your phone.")
                     .skyText(.body, color: SkyColor.inkSoft)
                     .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
                     .padding(.horizontal, SkyLayout.screenMargin)
 
                 VStack(spacing: SkySpacing.s3) {
@@ -94,6 +111,10 @@ struct PermissionPreflightView: View {
                                   label: "Location",
                                   status: vm.location,
                                   identifier: "verification.permRow.location")
+                    PermissionRow(icon: "figure.walk",
+                                  label: "Motion & Fitness",
+                                  status: vm.motion,
+                                  identifier: "verification.permRow.motion")
                 }
                 .padding(.horizontal, SkyLayout.screenMargin)
 
@@ -130,7 +151,7 @@ struct PermissionPreflightView: View {
     }
 
     private var anyDenied: Bool {
-        vm.camera == .denied || vm.microphone == .denied || vm.location == .denied
+        vm.camera == .denied || vm.microphone == .denied || vm.location == .denied || vm.motion == .denied
     }
 
     private func openSettings() {

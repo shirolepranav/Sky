@@ -1,17 +1,19 @@
 // SensorRecorder.swift
-// Concurrent GPS, barometric-pressure, and camera-light sampler that runs
-// during the 30-second outdoor video recording.
-// Tech Spec §8.1/§8.4, Roadmap Phase 8.
+// GPS sampler plus a retroactive step-count query for an outdoor verification.
+// Tech Spec §8.1/§8.4; DAILY_LOCK_PLAN.md Phase E.
 //
-// Threading model: @MainActor throughout.
-//   • CLLocationManager must be created on the main thread (per Apple docs).
-//     Delegate callbacks arrive on an arbitrary thread; they dispatch back to
-//     @MainActor via Task { @MainActor in }.
-//   • CMAltimeter handler is dispatched on OperationQueue.main — MainActor safe.
-//   • The light-sampler loop runs as a Task { @MainActor } (no extra sync needed).
-// All sample arrays are only written from @MainActor, so no locks are required.
+// The clip is only five seconds — often shorter than a GPS fix — so:
+//   • a cached fix up to `cachedFixMaxAge` old is accepted (the phone usually has
+//     one from the walk that just happened), and
+//   • `stop()` keeps listening for up to `gpsGraceSeconds` more if no usable fix
+//     has arrived yet.
+//
+// Steps come from CMPedometer's history, so the walk happens *before* recording
+// and Sky doesn't need to be open during it.
+//
+// Threading: @MainActor throughout. CLLocationManager delegate callbacks hop back
+// via Task { @MainActor in }.
 
-import AVFoundation
 import CoreLocation
 import CoreMotion
 import Foundation
@@ -19,62 +21,22 @@ import Foundation
 @MainActor
 final class SensorRecorder: NSObject {
 
-    // MARK: - Configuration
-
-    private weak var captureDevice: AVCaptureDevice?
-
-    // MARK: - Running state
+    /// Oldest cached location accepted at the start of a recording.
+    private static let cachedFixMaxAge: TimeInterval = 60
 
     private var locationManager: CLLocationManager?
-    private var altimeter: CMAltimeter?
-    private var lightSamplerTask: Task<Void, Never>?
-
-    // MARK: - Collected samples
-
     private var startTime: Date = Date()
     private var locationSamples: [CLLocation] = []
-    private var altitudeSamples: [Double] = []
-    private var exposureSamples: [Float] = []
     private var anyGPSSpoofDetected = false
-
-    // MARK: - Init
-
-    init(captureDevice: AVCaptureDevice?) {
-        self.captureDevice = captureDevice
-    }
 
     // MARK: - Public interface
 
-    /// Begin collecting sensor data. Call immediately before `startRecording`.
+    /// Begin collecting GPS. Call immediately before recording starts.
     func start() {
         startTime = Date()
         locationSamples.removeAll()
-        altitudeSamples.removeAll()
-        exposureSamples.removeAll()
         anyGPSSpoofDetected = false
 
-        startLocationManager()
-        startAltimeter()
-        startLightSampler()
-    }
-
-    /// Stop all sensors and return an aggregated reading. Call in the
-    /// AVCaptureFileOutputRecordingDelegate success callback.
-    func stop() -> SensorReading {
-        let lastLocation = locationSamples.last
-        stopAll()
-        let sunOK = sunriseSunsetCheck(lastLocation: lastLocation)
-        return buildReading(sunriseSunsetCheckPassed: sunOK)
-    }
-
-    /// Stop all sensors without building a reading. Call on cancel or interruption.
-    func stopAndDiscard() {
-        stopAll()
-    }
-
-    // MARK: - Private: start helpers
-
-    private func startLocationManager() {
         let mgr = CLLocationManager()
         mgr.delegate = self
         mgr.desiredAccuracy = kCLLocationAccuracyBest
@@ -83,74 +45,61 @@ final class SensorRecorder: NSObject {
         mgr.startUpdatingLocation()
     }
 
-    private func startAltimeter() {
-        guard CMAltimeter.isRelativeAltitudeAvailable() else { return }
-        let alt = CMAltimeter()
-        altimeter = alt
-        alt.startRelativeAltitudeUpdates(to: OperationQueue.main) { [weak self] data, error in
-            guard let data, error == nil else { return }
-            self?.altitudeSamples.append(data.relativeAltitude.doubleValue)
+    /// Stop and return an aggregated reading. Waits briefly for a usable GPS fix
+    /// if none has arrived, and queries the pedometer.
+    func stop() async -> SensorReading {
+        let deadline = Date().addingTimeInterval(VerificationThresholds.gpsGraceSeconds)
+        while bestGPSAccuracy() > VerificationThresholds.maxAcceptableGPSError, Date() < deadline {
+            try? await Task.sleep(for: .milliseconds(250))
         }
-    }
+        let lastLocation = locationSamples.last
+        stopAndDiscard()
 
-    private func startLightSampler() {
-        lightSamplerTask = Task { [weak self] in
-            while !Task.isCancelled {
-                if let device = self?.captureDevice {
-                    self?.exposureSamples.append(device.exposureTargetOffset)
-                }
-                try? await Task.sleep(for: .milliseconds(500))
-            }
-        }
-    }
-
-    // MARK: - Private: stop
-
-    private func stopAll() {
-        locationManager?.stopUpdatingLocation()
-        locationManager?.delegate = nil
-        locationManager = nil
-
-        altimeter?.stopRelativeAltitudeUpdates()
-        altimeter = nil
-
-        lightSamplerTask?.cancel()
-        lightSamplerTask = nil
-    }
-
-    // MARK: - Private: aggregation
-
-    private func sunriseSunsetCheck(lastLocation: CLLocation?) -> Bool {
-        // No fix → false, which is indistinguishable from "genuinely dark" here. That is
-        // safe only because VerificationDecisionEngine tests GPS accuracy *before* the
-        // daylight check, and `bestGPSAccuracy()` reports .infinity for an empty sample
-        // set — so a missing fix is attributed to GPS, not to darkness. Don't reorder
-        // those checks without revisiting this.
-        guard let loc = lastLocation else { return false }
-        let calc = SolarCalculator(
-            coordinate: loc.coordinate,
-            date: startTime,
-            timeZone: .current
-        )
-        // Civil twilight, not true sunrise/sunset — see SolarCalculator.civilTwilightZenith.
-        return calc.isWithinVerificationWindow()
-    }
-
-    private func buildReading(sunriseSunsetCheckPassed: Bool) -> SensorReading {
-        SensorReading(
+        let steps = await Self.recentSteps()
+        return SensorReading(
             gpsAccuracyAtBest: bestGPSAccuracy(),
-            maxHorizontalSpeed: maxSpeed(),
-            altitudeChangeMeters: altitudeDelta(),
-            medianExposureBias: medianExposure(),
             timeOfDay: startTime,
             gpsSpoofed: anyGPSSpoofDetected,
-            sunriseSunsetCheckPassed: sunriseSunsetCheckPassed,
+            isDaylight: isDaylight(at: lastLocation),
+            recentSteps: steps,
+            motionDenied: CMPedometer.authorizationStatus() == .denied,
             bestLocationTag: bestRoundedLocationTag()
         )
     }
 
-    /// Returns the best (most accurate) GPS sample rounded to 0.01° as "lat_lng",
-    /// or nil if no sample had accuracy ≤ 100 m (too imprecise for Wanderer badge).
+    /// Stop GPS without building a reading. Call on cancel or interruption.
+    func stopAndDiscard() {
+        locationManager?.stopUpdatingLocation()
+        locationManager?.delegate = nil
+        locationManager = nil
+    }
+
+    // MARK: - Steps
+
+    /// Steps in the last `stepWindowSeconds`, or nil when the device can't count
+    /// steps. Denied access reads as 0 (the reading's `motionDenied` explains it).
+    static func recentSteps(now: Date = Date()) async -> Int? {
+        guard CMPedometer.isStepCountingAvailable() else { return nil }
+        let from = now.addingTimeInterval(-VerificationThresholds.stepWindowSeconds)
+        return await withCheckedContinuation { continuation in
+            CMPedometer().queryPedometerData(from: from, to: now) { data, _ in
+                continuation.resume(returning: data?.numberOfSteps.intValue ?? 0)
+            }
+        }
+    }
+
+    // MARK: - Aggregation
+
+    private func isDaylight(at location: CLLocation?) -> Bool {
+        // No fix → false. Harmless: the GPS check fails first in that case.
+        guard let loc = location else { return false }
+        // Civil twilight, not true sunrise/sunset — see SolarCalculator.civilTwilightZenith.
+        return SolarCalculator(coordinate: loc.coordinate, date: startTime, timeZone: .current)
+            .isWithinVerificationWindow()
+    }
+
+    /// The most accurate sample rounded to 0.01° as "lat_lng" (privacy invariant),
+    /// or nil if none was within 100 m.
     private func bestRoundedLocationTag() -> String? {
         let best = locationSamples
             .filter { $0.horizontalAccuracy >= 0 && $0.horizontalAccuracy <= 100 }
@@ -162,43 +111,15 @@ final class SensorRecorder: NSObject {
     }
 
     private func bestGPSAccuracy() -> CLLocationAccuracy {
-        locationSamples.map(\.horizontalAccuracy).min() ?? .infinity
-    }
-
-    private func maxSpeed() -> Double {
-        // Use CoreLocation's Kalman-filtered .speed when the device provides it (>= 0).
-        let clSpeeds = locationSamples.compactMap { $0.speed >= 0 ? $0.speed : nil }
-        // Also compute pairwise speed between consecutive samples as a fallback.
-        let pairwise: [Double] = zip(locationSamples, locationSamples.dropFirst()).compactMap { prev, curr in
-            let dt = curr.timestamp.timeIntervalSince(prev.timestamp)
-            guard dt > 0 else { return nil }
-            return curr.distance(from: prev) / dt
-        }
-        return (clSpeeds + pairwise).max() ?? 0
-    }
-
-    private func altitudeDelta() -> Double {
-        guard let lo = altitudeSamples.min(), let hi = altitudeSamples.max() else { return 0 }
-        return abs(hi - lo)
-    }
-
-    private func medianExposure() -> Float {
-        guard !exposureSamples.isEmpty else { return 0 }
-        let sorted = exposureSamples.sorted()
-        let mid = sorted.count / 2
-        return sorted.count.isMultiple(of: 2)
-            ? (sorted[mid - 1] + sorted[mid]) / 2
-            : sorted[mid]
+        locationSamples.map(\.horizontalAccuracy).filter { $0 >= 0 }.min() ?? .infinity
     }
 
     // MARK: - Testability seam
 
-    /// Returns true if any location carries an accessory/software-simulated GPS flag.
-    /// Exposed as `internal static` because CLLocationSourceInformation has no public init,
-    /// making direct unit testing of real-device spoof scenarios impossible in tests.
+    /// True if any location carries an accessory/software-simulated GPS flag.
+    /// `internal static` because CLLocationSourceInformation has no public init.
     static func containsSpoofedLocation(_ locations: [CLLocation]) -> Bool {
-        guard #available(iOS 15.0, *) else { return false }
-        return locations.contains {
+        locations.contains {
             $0.sourceInformation?.isProducedByAccessory == true
             || $0.sourceInformation?.isSimulatedBySoftware == true
         }
@@ -214,14 +135,9 @@ extension SensorRecorder: CLLocationManagerDelegate {
     ) {
         Task { @MainActor [weak self] in
             guard let self else { return }
-            for loc in locations {
-                guard loc.timestamp >= self.startTime else { continue }
-                if #available(iOS 15.0, *) {
-                    if loc.sourceInformation?.isProducedByAccessory == true
-                       || loc.sourceInformation?.isSimulatedBySoftware == true {
-                        self.anyGPSSpoofDetected = true
-                    }
-                }
+            let oldest = self.startTime.addingTimeInterval(-Self.cachedFixMaxAge)
+            for loc in locations where loc.timestamp >= oldest {
+                if Self.containsSpoofedLocation([loc]) { self.anyGPSSpoofDetected = true }
                 self.locationSamples.append(loc)
             }
         }

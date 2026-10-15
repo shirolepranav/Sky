@@ -126,7 +126,7 @@ struct TodayView: View {
                         .onTapGesture { showingLimitConfig = true }
                         .accessibilityValue(ringAccessibilityValue)
                         .accessibilityLabel("Daily usage ring")
-                        .accessibilityHint("Opens the session limit editor")
+                        .accessibilityHint("Opens the lock time editor")
                         .accessibilityAddTraits(.isButton)
                         .accessibilityIdentifier("today.usageRing")
                         .skyEntrance(2, revealed: revealed)
@@ -174,12 +174,14 @@ struct TodayView: View {
             TodayEditAppsSheet { store = SharedDefaults() }
                 .environmentObject(storeKit)
         }
-        // S-CFG-03 · Daily-limit editor. On save, re-arm monitoring so the new
+        // S-CFG-03 · Lock-time editor. On save, re-arm monitoring so the new
         // configuration takes effect and the state flips to `.unblocked`.
         .sheet(isPresented: $showingLimitConfig) {
             TodayEditLimitSheet {
                 store = SharedDefaults()
                 try? deviceActivity.startMonitoring()
+                // A lock time moved to an hour already past today applies now.
+                ShieldService.reconcile()
             }
             .environmentObject(storeKit)
         }
@@ -250,7 +252,7 @@ struct TodayView: View {
             switch appState {
             case .blocked:
                 SkyPrimaryButton("Verify now") { showingVerification = true }
-                    .accessibilityHint("Opens the 30-second outdoor video recording")
+                    .accessibilityHint("Opens the outdoor verification")
                     .accessibilityIdentifier("today.verifyButton")
                 SkySecondaryButton("I can't go outside") { showingEmergency = true }
                     .accessibilityHint("Opens the emergency unlock flow. This resets your streak.")
@@ -269,8 +271,8 @@ struct TodayView: View {
                     .accessibilityIdentifier("today.chooseAppsButton")
 
             case .noLimit:
-                SkyPrimaryButton("Set your limit") { showingLimitConfig = true }
-                    .accessibilityHint("Opens the session limit editor")
+                SkyPrimaryButton("Set your lock time") { showingLimitConfig = true }
+                    .accessibilityHint("Opens the lock time editor")
                     .accessibilityIdentifier("today.setLimitButton")
 
             case .verifiedToday, .emergencyUnlocked, .unblocked, .paused:
@@ -286,7 +288,7 @@ struct TodayView: View {
         case .entitlementMissing: return "Screen Time access needed."
         case .paused:           return "Paused."
         case .unblocked:        return "Sky is watching."
-        case .blocked:          return "Time's up."
+        case .blocked:          return "Apps are paused."
         case .verifiedToday:    return "Verified ☀"
         case .emergencyUnlocked: return "Emergency unlock used."
         case .noApps:           return "Nothing selected yet."
@@ -295,16 +297,16 @@ struct TodayView: View {
     }
 
     private var bannerBody: String {
-        let session = store.sessionLengthLabel
+        let lock = store.lockTimeLabel
         switch appState {
         case .entitlementMissing: return "Sky needs Screen Time access again to block your apps."
         case .paused:           return pausedBannerBody
-        case .unblocked:        return "\(session) of use, then a trip outside."
-        case .blocked:          return "Verify outside for another \(session) of use."
-        case .verifiedToday:    return "Apps are open for your next \(session) of use. Nice work."
+        case .unblocked:        return "Apps pause at \(lock). A short walk outside unlocks them for the day."
+        case .blocked:          return "Nimbus is waiting outside. A short walk unlocks your apps for the day."
+        case .verifiedToday:    return "Apps stay open until your next lock, \(lock). Nice work."
         case .emergencyUnlocked: return "Streak reset. Tomorrow's a fresh start."
         case .noApps:           return "Choose the apps you'd like Sky to manage."
-        case .noLimit:          return "Set your session limit to start."
+        case .noLimit:          return "Pick your lock time to start."
         }
     }
 
@@ -335,16 +337,13 @@ struct TodayView: View {
         case .entitlementMissing: return "Off"
         case .paused:           return "Off"
         case .verifiedToday:    return "Done"
-        case .blocked:          return "0 left"
-        default:
-            let h = store.combinedLimitSeconds / 3600
-            return "\(h)h"
+        case .blocked:          return "Paused"
+        default:                return store.lockTimeLabel
         }
     }
 
     private var ringAccessibilityValue: String {
-        let limitHours = store.combinedLimitSeconds / 3600
-        return "Limit: \(limitHours) hour\(limitHours == 1 ? "" : "s")"
+        "Apps pause at \(store.lockTimeLabel)"
     }
 
     // MARK: - Badge celebration queue

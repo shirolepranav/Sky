@@ -124,10 +124,8 @@ enum DebugSeeder {
     private static func applyTodayState(_ store: SharedDefaults) {
         store.didVerifyToday = true
         store.isCurrentlyBlocked = false
-        store.limitMode = "perApp"
-        store.combinedLimitSeconds = 3600
-        store.limitsEnabled = true
-        store.notifWarningEnabled = true
+        store.lockTimeMinutes = 9 * 60
+        store.lockWeekdays = [2, 3, 4, 5, 6]
         store.notifStreakEnabled = true
     }
 }

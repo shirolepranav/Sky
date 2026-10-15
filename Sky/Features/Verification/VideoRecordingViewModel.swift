@@ -1,10 +1,10 @@
 // VideoRecordingViewModel.swift
-// AVCaptureSession lifecycle, 30-second countdown, prompt sequencing,
+// AVCaptureSession lifecycle, 5-second countdown, prompt sequencing,
 // interruption detection, pre-flight checks, and temp-file management.
 // Sky_App_Workflow.md S-VER-03/04/08; Tech Spec §8.1/§8.4.
 // All AVFoundation calls are delegated to CaptureController so unit tests
 // can inject a mock without a real device.
-// Phase 8: SensorRecorder runs concurrently during the 30-second window.
+// Phase 8: SensorRecorder runs GPS during the clip (DAILY_LOCK_PLAN.md Phase E).
 
 import AVFoundation
 import Combine
@@ -134,23 +134,18 @@ final class VideoRecordingViewModel: NSObject, ObservableObject {
         let text: String
     }
 
+    /// One motion: start at the ground, finish on open sky. The scene check only
+    /// needs some frames outdoor and one frame of sky (VerificationThresholds).
     let prompts: [Prompt] = [
-        Prompt(triggerSecond: 0,  text: "Hold steady, point your camera up."),
-        Prompt(triggerSecond: 6,  text: "Now slowly look around."),
-        Prompt(triggerSecond: 14, text: "Point at the sky for 5 seconds."),
-        // Deliberately does NOT ask the user to "show where you are" — that invited
-        // turning the phone around, and this segment is 8 of 30 seconds (27%) while
-        // `minOutdoorFrameRatio` demands 80% of frames classify outdoor. Nothing in
-        // the pipeline measures location from the video, so the frames are better
-        // spent on sky.
-        Prompt(triggerSecond: 22, text: "Almost done — keep the sky in view."),
+        Prompt(triggerSecond: 0, text: "Start at the ground…"),
+        Prompt(triggerSecond: 2, text: "…and tilt up to the sky."),
     ]
 
     var currentPromptText: String { prompts[currentPromptIndex].text }
 
     // MARK: Constants
 
-    private let recordingDuration = 30
+    let recordingDuration = VerificationThresholds.clipSeconds
     private let minimumFreeDiskBytes: Int64 = 200 * 1_024 * 1_024
     private let lowBatteryThreshold: Float = 0.05
 
@@ -228,7 +223,7 @@ final class VideoRecordingViewModel: NSObject, ObservableObject {
                         // Small pause so the session is fully running before recording
                         try? await Task.sleep(for: .milliseconds(300))
                         // Start sensor recorder concurrently with video (Tech Spec §8)
-                        let recorder = SensorRecorder(captureDevice: self.captureController.captureDevice)
+                        let recorder = SensorRecorder()
                         self.sensorRecorder = recorder
                         recorder.start()
                         self.captureController.startRecording(to: url, delegate: self)
@@ -257,9 +252,9 @@ final class VideoRecordingViewModel: NSObject, ObservableObject {
     ///
     /// The coordinator owns exactly one of these as a `@StateObject` for the whole
     /// verification flow, so every retry path reuses this instance. Without a reset
-    /// the second attempt inherited `elapsedSeconds == 30` and
-    /// `currentPromptIndex == 3`, which rendered the *last* prompt ("Almost done —
-    /// keep the sky in view.") over a countdown reading 0 and an empty progress ring
+    /// the second attempt inherited a finished `elapsedSeconds` and the last
+    /// `currentPromptIndex`, which rendered the *last* prompt over a countdown
+    /// reading 0 and an empty progress ring
     /// — and the first tick, already past `recordingDuration`, immediately stopped
     /// the recording. Call this from every path that sends the user back to
     /// S-VER-01 (see `VerificationCoordinatorView.restartFlow`).
@@ -396,7 +391,7 @@ extension VideoRecordingViewModel: AVCaptureFileOutputRecordingDelegate {
                     self.recordingState = .interrupted
                 }
             } else {
-                let reading = self.sensorRecorder?.stop() ?? .unavailable
+                let reading = await self.sensorRecorder?.stop() ?? .unavailable
                 self.sensorRecorder = nil
                 self.recordingState = .finished(outputFileURL, reading)
             }

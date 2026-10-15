@@ -1,133 +1,68 @@
 // LimitConfigurationViewModel.swift
-// State and persistence for the daily-limit configuration screen (S-CFG-03/04/05).
-// Sky_App_Workflow.md §S-CFG-03. Sky_Technical_Spec.md §6.1.
+// State and persistence for the lock-time screen (S-CFG-03; DAILY_LOCK_PLAN.md
+// Phase D). Sky_App_Workflow.md §S-CFG-03. Sky_Technical_Spec.md §6.1.
 //
-// Reads and writes `limitMode`, `combinedLimitSeconds`, and `perAppLimitsData`
-// from SharedDefaults. The injectable `store` parameter keeps this testable with
-// an isolated UserDefaults suite — the same pattern used in AppSelectionViewModel.
+// Reads and writes `lockTimeMinutes` and `lockWeekdays` from SharedDefaults. The
+// injectable `store` keeps this testable with an isolated UserDefaults suite.
 //
-// Phase 14: `setLimitMode(_:isPro:)` enforces the per-app limits Pro gate.
-// `showsPerAppProGate` signals the view to present S-PAY-05.
+// Choosing lock days (anything other than every day) is the Pro feature;
+// `showsLockDaysProGate` signals the view to present S-PAY-05.
 
 import SwiftUI
-import FamilyControls
-import ManagedSettings
 
 @MainActor
 final class LimitConfigurationViewModel: ObservableObject {
 
-    enum LimitMode: String {
-        case combined = "combined"
-        case perApp   = "perApp"
-    }
-
     // MARK: Published state
 
-    @Published var limitMode: LimitMode
-    @Published var combinedLimitSeconds: Int
-    /// Per-app budgets keyed by token. Access via `minutesBinding(for:)` which
-    /// applies 60 m defaults and clamps to the 15–240 m range.
-    @Published var perAppMinutes: [ApplicationToken: Int]
+    @Published var lockTimeMinutes: Int
+    @Published private(set) var lockWeekdays: Set<Int>
 
-    /// Set when a free user tries to switch to per-app mode. View presents S-PAY-05.
-    @Published var showsPerAppProGate: Bool = false
-
-    // MARK: Storage
+    /// Set when a free user tries to change lock days. View presents S-PAY-05.
+    @Published var showsLockDaysProGate = false
 
     private let store: SharedDefaults
 
-    // MARK: Init
-
     init(store: SharedDefaults = SharedDefaults()) {
         self.store = store
-        self.limitMode      = LimitMode(rawValue: store.limitMode) ?? .combined
-        self.combinedLimitSeconds = store.combinedLimitSeconds
-        self.perAppMinutes  = Self.decodePerAppLimits(from: store.perAppLimitsData)
+        self.lockTimeMinutes = store.lockTimeMinutes
+        self.lockWeekdays = store.lockWeekdays
     }
 
-    // MARK: Derived
+    // MARK: Options
 
-    /// App tokens from the persisted selection, in a stable order. Computed
-    /// lazily so it always reflects the latest SharedDefaults selection even when
-    /// this ViewModel was created before the user completed app selection.
-    var appTokens: [ApplicationToken] {
-        Array(store.selection?.applicationTokens ?? [])
-            .sorted { $0.hashValue < $1.hashValue }
+    /// Every half hour from 5 AM to the latest the schedule allows.
+    static let lockTimeOptions: [Int] = Array(
+        stride(from: 5 * 60, through: DeviceActivityService.latestLockTimeMinutes, by: 30)
+    )
+
+    /// Calendar weekdays (1 = Sunday) in the user's locale order.
+    static var orderedWeekdays: [Int] {
+        let first = Calendar.current.firstWeekday
+        return (0..<7).map { (first - 1 + $0) % 7 + 1 }
     }
 
-    /// True when the user picked one or more *categories* but no individual apps.
-    /// Per-app limits can't break a whole category into rows, so the per-app view
-    /// shows a guidance message instead of an empty "No apps" state.
-    var hasCategoriesOnly: Bool {
-        appTokens.isEmpty && !(store.selection?.categoryTokens.isEmpty ?? true)
-    }
+    // MARK: Lock days (Pro)
 
-    // MARK: Pro-gated mode switching (Phase 14)
-
-    /// Change the limit mode, respecting the per-app Pro gate.
-    /// Views must call this instead of assigning `limitMode` directly so that
-    /// the gate is applied even from non-Picker entry points.
-    func setLimitMode(_ mode: LimitMode, isPro: Bool) {
-        if mode == .perApp && !isPro {
-            showsPerAppProGate = true
-            return  // do not change limitMode
+    /// Flips one weekday on or off. Free users get the Pro gate instead; nobody can
+    /// switch off the last remaining day (that's what Pause is for).
+    func toggleWeekday(_ weekday: Int, isPro: Bool) {
+        guard isPro else {
+            showsLockDaysProGate = true
+            return
         }
-        limitMode = mode
+        if lockWeekdays.contains(weekday) {
+            guard lockWeekdays.count > 1 else { return }
+            lockWeekdays.remove(weekday)
+        } else {
+            lockWeekdays.insert(weekday)
+        }
     }
 
     // MARK: Persistence
 
     func save() {
-        // Seed 60 m defaults for any tokens not yet explicitly changed.
-        for token in appTokens where perAppMinutes[token] == nil {
-            perAppMinutes[token] = 60
-        }
-        store.limitMode           = limitMode.rawValue
-        store.combinedLimitSeconds = combinedLimitSeconds
-        store.perAppLimitsData    = encodePerAppLimits()
-    }
-
-    // MARK: Stepper binding
-
-    /// A `Binding<Int>` for the per-app stepper that:
-    ///   - returns 60 m if no value has been set yet (first entry)
-    ///   - clamps writes to 15–240 m (15 min – 4 hours, 15 min steps)
-    ///   - fires a light haptic on each value change
-    func minutesBinding(for token: ApplicationToken) -> Binding<Int> {
-        Binding(
-            get: { self.perAppMinutes[token, default: 60] },
-            set: { newValue in
-                let clamped = min(max(newValue, 15), 240)
-                self.perAppMinutes[token] = clamped
-                #if os(iOS)
-                UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                #endif
-            }
-        )
-    }
-
-    /// Clamps a raw minutes value into the valid 15–240 range.
-    /// Exposed for unit-testing the clamping logic independently of ApplicationToken.
-    func clampedMinutes(_ minutes: Int) -> Int {
-        min(max(minutes, 15), 240)
-    }
-
-    // MARK: Codable helpers
-
-    struct TokenLimitEntry: Codable {
-        let token: ApplicationToken
-        var minutes: Int
-    }
-
-    private static func decodePerAppLimits(from data: Data?) -> [ApplicationToken: Int] {
-        guard let data,
-              let entries = try? JSONDecoder().decode([TokenLimitEntry].self, from: data)
-        else { return [:] }
-        return Dictionary(uniqueKeysWithValues: entries.map { ($0.token, $0.minutes) })
-    }
-
-    private func encodePerAppLimits() -> Data? {
-        let entries = perAppMinutes.map { TokenLimitEntry(token: $0.key, minutes: $0.value) }
-        return try? JSONEncoder().encode(entries)
+        store.lockTimeMinutes = min(max(lockTimeMinutes, 0), DeviceActivityService.latestLockTimeMinutes)
+        store.lockWeekdays = lockWeekdays
     }
 }

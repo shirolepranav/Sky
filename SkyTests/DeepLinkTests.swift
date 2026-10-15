@@ -35,3 +35,19 @@ final class DeepLinkTests: XCTestCase {
         XCTAssertNil(SkyDeepLink(url: url))
     }
 }
+
+/// The shield-tap notification is the only way a shield button reaches Sky.
+final class NotificationRouterTests: XCTestCase {
+    func testUserInfoWithVerifyRoutesToVerify() {
+        XCTAssertEqual(SkyNotificationRouter.deepLink(from: ["sky_deep_link": "verify"]), .verify)
+    }
+
+    func testUserInfoWithEmergencyRoutesToEmergency() {
+        XCTAssertEqual(SkyNotificationRouter.deepLink(from: ["sky_deep_link": "emergency"]), .emergency)
+    }
+
+    func testUnrelatedNotificationDoesNotRoute() {
+        XCTAssertNil(SkyNotificationRouter.deepLink(from: [:]))
+        XCTAssertNil(SkyNotificationRouter.deepLink(from: ["sky_deep_link": "bogus"]))
+    }
+}

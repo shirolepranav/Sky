@@ -26,7 +26,7 @@ struct AppSelectionView: View {
         VStack(spacing: SkySpacing.s8) {
             Spacer(minLength: SkySpacing.s6)
 
-            Text("Which apps do you want to limit?")
+            Text("Which apps should pause each morning?")
                 .skyText(.titleXL)
                 .multilineTextAlignment(.center)
                 .accessibilityIdentifier("appSelection.title")

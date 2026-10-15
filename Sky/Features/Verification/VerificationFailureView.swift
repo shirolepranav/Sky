@@ -50,7 +50,16 @@ struct VerificationFailureView: View {
                 Spacer()
 
                 VStack(spacing: SkySpacing.s3) {
-                    SkyPrimaryButton("Try again", action: onTryAgain)
+                    if reason == .motionAccessNeeded {
+                        SkyPrimaryButton("Open Settings") {
+                            if let url = URL(string: UIApplication.openSettingsURLString) {
+                                UIApplication.shared.open(url)
+                            }
+                        }
+                        SkySecondaryButton("Try again", action: onTryAgain)
+                    } else {
+                        SkyPrimaryButton("Try again", action: onTryAgain)
+                    }
                     SkySecondaryButton("I can't go outside", action: onEmergency)
                 }
                 .padding(.horizontal, SkyLayout.screenMargin)
@@ -66,7 +75,7 @@ struct VerificationFailureView: View {
                 Image(systemName: "lightbulb")
                     .font(.system(size: 17))
                     .foregroundColor(SkyColor.sunYellow)
-                Text("Trouble verifying? Make sure you're outside with open sky visible.")
+                Text("Trouble verifying? Walk a couple of minutes first, then film from the ground up to open sky.")
                     .skyText(.bodyS, color: SkyColor.inkSoft)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -86,7 +95,7 @@ struct VerificationFailureView: View {
 
 #Preview("S-VER-07 — tip shown (3 failures)") {
     VerificationFailureView(
-        reason: .notBrightEnough,
+        reason: .notEnoughSteps,
         consecutiveFailures: 3,
         onTryAgain: {},
         onEmergency: {},
@@ -96,7 +105,7 @@ struct VerificationFailureView: View {
 
 #Preview("S-VER-07 — no sky") {
     VerificationFailureView(
-        reason: .noSkyVisible,
+        reason: .sceneNotOutdoor,
         consecutiveFailures: 1,
         onTryAgain: {},
         onEmergency: {},

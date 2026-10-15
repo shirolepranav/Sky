@@ -1,5 +1,8 @@
 # Open decision — platform floor for night verification
 
+> **Superseded 2026-10-14** by `DAILY_LOCK_PLAN.md`. Sky no longer counts usage or offers Night Mode; kept for history only.
+
+
 **Raised:** 2026-08-12 · **Revisit:** after iOS 27 GA (~2026-09-14) · **Status:** open
 
 ## The proposal on the table

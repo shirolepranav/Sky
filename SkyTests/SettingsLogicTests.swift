@@ -1,6 +1,6 @@
 // SettingsLogicTests.swift
 // Phase 15 automated tests (Roadmap Phase 15 → Automated Tests). Covers the
-// once-per-week Pause gate and the Night Mode toggle persistence, exercised
+// once-per-week Pause gate and notification defaults, exercised
 // through the SharedDefaults-backed logic they read/write on an isolated suite.
 
 import XCTest
@@ -55,26 +55,9 @@ final class SettingsLogicTests: XCTestCase {
         XCTAssertNil(store.pauseEndsAt)
     }
 
-    // MARK: - Night Mode
-
-    func testNightModeToggle() {
-        XCTAssertFalse(store.nightModeEnabled, "defaults off")
-        store.nightModeEnabled = true
-        XCTAssertTrue(SharedDefaults(defaults: defaults).nightModeEnabled, "persists across reads")
-        store.nightModeEnabled = false
-        XCTAssertFalse(SharedDefaults(defaults: defaults).nightModeEnabled)
-    }
-
     // MARK: - Notification preference defaults
 
-    func testNotificationTogglesDefaultOn() {
-        XCTAssertTrue(store.notifWarningEnabled)
+    func testStreakNotificationDefaultsOn() {
         XCTAssertTrue(store.notifStreakEnabled)
-    }
-
-    /// Both start empty so the first post of a new day always goes through.
-    func testNotificationDayStampsStartEmpty() {
-        XCTAssertEqual(store.notifWarningDay, "")
-        XCTAssertEqual(store.notifBlockStartDay, "")
     }
 }

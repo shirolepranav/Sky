@@ -29,7 +29,7 @@
 
 	<!-- Camera / microphone / location (Phase 7 deferred; added Phase 8) -->
 	<key>NSCameraUsageDescription</key>
-	<string>Sky needs the camera to record your 30-second outdoor video for verification.</string>
+	<string>Sky needs the camera to record a short clip of the sky for verification.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Sky records audio alongside the video to verify the ambient soundscape.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
@@ -37,7 +37,7 @@
 
 	<!-- Barometer (Phase 8 — CMAltimeter detects altitude changes from walking) -->
 	<key>NSMotionUsageDescription</key>
-	<string>Sky uses the barometer to detect altitude changes consistent with walking outdoors.</string>
+	<string>Sky checks your recent step count to confirm you took a short walk outside. It never leaves your phone.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>Sky saves your streak card to Photos when you choose Save Image from the share sheet.</string>
 </dict>
