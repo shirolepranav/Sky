@@ -169,7 +169,7 @@ struct SkyPopButtonStyle: ButtonStyle {
             // "tappable" cue) and use the muted outline.
             let outline = isEnabled
                 ? (onAccent ? SkyColor.outlineOnAccent : SkyColor.outline)
-                : SkyColor.inkMuted
+                : SkyColor.outlineDisabled
             configuration.label
                 .skyText(.button, color: isEnabled ? kind.label : SkyColor.inkSoft)
                 .multilineTextAlignment(.center)

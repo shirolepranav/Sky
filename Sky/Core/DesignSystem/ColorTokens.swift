@@ -86,8 +86,12 @@ enum SkyColor {
 
     // MARK: Outlines — DESIGN_SYSTEM.md §6 "Tappable outline"
     /// Ink outline + hard offset shadow marks an element as tappable. Adaptive:
-    /// ink on light surfaces, `darkInk` on `darkBg` so the outline still reads.
-    static let outline = Color(light: Color(hex: "2D3748"), dark: Color(hex: "F0F4F8"))
+    /// ink on light surfaces; in dark mode a near-black `darkOutline`, deeper than
+    /// `darkBg`, so controls get a dark rim and drop, not a light halo.
+    static let outline = Color(light: Color(hex: "2D3748"), dark: Color(hex: "08090D"))
+    /// Outline of a disabled Pop control (no shadow): soft grey on light, the
+    /// same near-black rim on dark.
+    static let outlineDisabled = Color(light: Color(hex: "9CA3AF"), dark: Color(hex: "08090D"))
     /// Outline for tappable elements sitting on a bright Pop ground (popSky /
     /// popSun / popCoral). Those grounds don't darken, so this stays ink.
     static let outlineOnAccent = Color(hex: "2D3748")
@@ -116,6 +120,7 @@ enum SkyColor {
     static let darkInk = Color(hex: "F0F4F8")           // primary text on dark
     static let darkInkSoft = Color(hex: "A8B3C2")       // secondary text on dark
     static let darkDivider = Color.white.opacity(0.08)  // dividers on dark
+    static let darkOutline = Color(hex: "08090D")       // Sky Pop outline + shadow on dark
 }
 
 #Preview("Color tokens") {

@@ -72,7 +72,8 @@ They don't darken in dark mode (they're grounds, not surfaces). Text on them is
 
 | Token | Light | Dark | Role |
 |---|---|---|---|
-| `outline` | `#2D3748` | `#F0F4F8` (`darkInk`) | Ink outline + hard shadow of tappable elements on surfaces |
+| `outline` | `#2D3748` | `#08090D` (`darkOutline`) | Ink outline + hard shadow of tappable elements on surfaces |
+| `outlineDisabled` | `#9CA3AF` | `#08090D` | Outline of a disabled Pop control (no shadow) |
 | `outlineOnAccent` | `#2D3748` | `#2D3748` | Same, on a Pop ground (`popSky` / `popSun` / `popCoral`) |
 
 ### Text
@@ -102,6 +103,7 @@ They don't darken in dark mode (they're grounds, not surfaces). Text on them is
 | `darkInk` | `#F0F4F8` | Primary text on dark |
 | `darkInkSoft` | `#A8B3C2` | Secondary text on dark |
 | `darkDivider` | `rgba(255,255,255,0.08)` | Dividers on dark |
+| `darkOutline` | `#08090D` | Sky Pop outline + hard shadow on dark (deeper than `darkBg`) |
 
 ---
 
@@ -198,11 +200,12 @@ keeps the louder look legible:
   `SkyPopShadow.chip` (3×3).
 - **Pressed:** the element translates by the shadow offset into its shadow and the shadow
   goes to 0, so it looks pushed in. A *selected* chip stays pushed in.
-- **Disabled:** fill `inkDisabled`, outline `inkMuted`, no shadow (it isn't tappable).
+- **Disabled:** fill `inkDisabled`, outline `outlineDisabled`, no shadow (it isn't tappable).
 - **Does not get it:** info-only cards and stat tiles. They keep the hairline `divider`
   border. An outline *without* a shadow is allowed only for a flat "sticker" label on a
   Pop ground (e.g. the date pill on Today); it is not tappable and has no shadow.
-- **Dark mode:** on surfaces the outline is `outline` (flips to `darkInk` on `darkBg`).
+- **Dark mode:** on surfaces the outline is `outline`, which becomes near-black `darkOutline`
+  (deeper than `darkBg`): a dark rim and dark drop, never a light halo around controls.
   On a Pop ground it is `outlineOnAccent` (stays ink).
 - Swift: `View.skyPopSurface(_:fill:outline:lineWidth:shadow:sunk:)` draws it;
   `SkyPopButtonStyle`, `SkyChipButtonStyle`, `SkyPopPill` and `SkyPopStreakBadge` use it.
