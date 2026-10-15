@@ -20,7 +20,10 @@ final class RealVerificationService: VerificationService {
                 frame:  frameResult
             )
             switch decision {
-            case .success:           return .success
+            case .success:
+                // One still, kept on-device as today's sky; the video is deleted above.
+                if let jpeg = frameResult.bestFrameJPEG { SkyPhotoStore.shared.save(jpeg: jpeg) }
+                return .success
             case .failure(let reason): return .failure(reason)
             }
         } catch {

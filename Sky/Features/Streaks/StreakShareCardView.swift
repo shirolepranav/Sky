@@ -3,6 +3,10 @@
 // Rendered off-screen by `ImageRenderer` in StreakShareSheetView, so it is a
 // fixed-size, deterministic view — never laid out responsively.
 //
+// When the user has a saved sky photo (SkyPhotoStore, DAILY_LOCK_PLAN.md Phase F)
+// it heads the card, with Nimbus tucked into its corner — the photo is the proof
+// and the thing worth posting.
+//
 // Deliberately omitted from the card:
 //   • the emergency-unlock count — broadcasting it is guilt-shaped, and the
 //     brand voice rule is that Sky is never punishing (PRD §7).
@@ -17,6 +21,8 @@ import SwiftUI
 struct StreakShareCardView: View {
 
     let progress: UserProgress
+    /// The latest sky photo, or nil to show Nimbus alone.
+    var skyImage: UIImage? = nil
 
     /// 4:5 — reads well in an Instagram feed and is safe inside a 9:16 story.
     static let size = CGSize(width: 320, height: 400)
@@ -49,7 +55,11 @@ struct StreakShareCardView: View {
 
     var body: some View {
         VStack(spacing: SkySpacing.s3) {
-            NimbusView(state: mascotState, size: 116, isStatic: true)
+            if let skyImage {
+                skyPhoto(skyImage)
+            } else {
+                NimbusView(state: mascotState, size: 116, isStatic: true)
+            }
 
             VStack(spacing: 0) {
                 Text("\(headlineNumber)")
@@ -66,7 +76,7 @@ struct StreakShareCardView: View {
                 statColumn(value: "\(progress.totalVerifications)", label: "VERIFIED")
             }
 
-            if !showcaseBadges.isEmpty {
+            if skyImage == nil, !showcaseBadges.isEmpty {
                 HStack(spacing: SkySpacing.s3) {
                     ForEach(showcaseBadges, id: \.self) { badge in
                         BadgeArtView(badge: badge, size: 32)
@@ -81,6 +91,19 @@ struct StreakShareCardView: View {
         .padding(SkySpacing.s5)
         .frame(width: Self.size.width, height: Self.size.height)
         .background(cardBackground)
+    }
+
+    private func skyPhoto(_ image: UIImage) -> some View {
+        Image(uiImage: image)
+            .resizable()
+            .scaledToFill()
+            .frame(width: Self.size.width - 2 * SkySpacing.s5, height: 150)
+            .clipShape(RoundedRectangle(cornerRadius: SkyRadius.card, style: .continuous))
+            .overlay(alignment: .bottomTrailing) {
+                NimbusView(state: mascotState, size: 56, isStatic: true)
+                    .offset(x: SkySpacing.s2, y: SkySpacing.s3)
+            }
+            .accessibilityLabel("Today's sky")
     }
 
     private func statColumn(value: String, label: String) -> some View {
@@ -121,9 +144,9 @@ extension StreakShareCardView {
     ///   • `colorScheme` — the card's tokens are adaptive; pinning to light
     ///     keeps the exported PNG identical for every user.
     @MainActor
-    static func render(progress: UserProgress) -> UIImage? {
+    static func render(progress: UserProgress, skyImage: UIImage? = nil) -> UIImage? {
         let renderer = ImageRenderer(
-            content: StreakShareCardView(progress: progress)
+            content: StreakShareCardView(progress: progress, skyImage: skyImage)
                 .environment(\.dynamicTypeSize, .large)
                 .environment(\.colorScheme, .light)
         )

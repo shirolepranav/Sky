@@ -193,7 +193,8 @@ All progress syncs across user's devices via CloudKit private database. No leade
 
 These commitments are also marketing — Sky's strict on-device verification is a competitive advantage:
 
-- **No video upload, ever.** Verification videos exist only on the user's device; deleted automatically after verification completes (success or fail)
+- **No video upload, ever.** Verification clips exist only on the user's device; deleted automatically after verification completes (success or fail)
+- **One sky photo per verified day, on-device only** (Phase F). A metadata-free still of the clip's best sky frame, kept for the last 30 days for the "today's sky" card and share image. Excluded from backup, never synced, deletable in Settings → Your skies; it leaves the phone only when the user shares it
 - **No raw screen time data sent to any server.** Apple's API prevents this anyway, and Sky has no backend that would store it
 - **No app names sent to any server.** Apple's opaque-token system enforces this
 - **CloudKit private database only.** User progress (streaks, badges, mascot state) syncs only to user's own iCloud account

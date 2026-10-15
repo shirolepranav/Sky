@@ -28,6 +28,9 @@ actor VisionAnalyzer {
     /// Downscale frames to this size before classification (faster than 1080p, still accurate).
     private static let frameSize = CGSize(width: 480, height: 270)
 
+    /// Bounding size for the kept "today's sky" frame.
+    private static let shareFrameSize = CGSize(width: 1080, height: 1080)
+
     /// Sample every Nth frame. At 30 fps over a 5 s clip: 150 frames ÷ 5 = 30 analysed.
     private static let frameStep: Int = 5
 
@@ -71,6 +74,8 @@ actor VisionAnalyzer {
         var outdoorCount = 0
         var maxSkyPercent = 0.0
         var analyzed = 0
+        // The frame with the most sky (the last one at night, when none has any).
+        var bestFrameTime: CMTime?
 
         // AVAssetImageGenerator.Images.Element: next() returns nil when exhausted (does not throw).
         // frame.image is a throwing property — skip frames that fail to decode.
@@ -81,7 +86,10 @@ actor VisionAnalyzer {
 
             if classifyOutdoor(cgImage) { outdoorCount += 1 }
             let skyPct = SkyPixelCounter.skyPercent(in: cgImage)
-            if skyPct > maxSkyPercent { maxSkyPercent = skyPct }
+            if skyPct > maxSkyPercent || bestFrameTime == nil {
+                maxSkyPercent = max(skyPct, maxSkyPercent)
+                bestFrameTime = try? frame.actualTime
+            }
         }
 
         guard analyzed > 0 else { throw AnalysisError.noFramesGenerated }
@@ -89,8 +97,19 @@ actor VisionAnalyzer {
         return FrameAnalysisResult(
             outdoorFrameRatio: Double(outdoorCount) / Double(analyzed),
             maxSkyPixelPercent: maxSkyPercent,
-            analyzedFrameCount: analyzed
+            analyzedFrameCount: analyzed,
+            bestFrameJPEG: await shareFrame(of: asset, at: bestFrameTime)
         )
+    }
+
+    /// Re-extracts the best frame at share resolution (analysis frames are 480 px).
+    private func shareFrame(of asset: AVURLAsset, at time: CMTime?) async -> Data? {
+        guard let time else { return nil }
+        let generator = AVAssetImageGenerator(asset: asset)
+        generator.appliesPreferredTrackTransform = true
+        generator.maximumSize = VisionAnalyzer.shareFrameSize
+        guard let image = try? await generator.image(at: time).image else { return nil }
+        return SkyPhotoStore.jpeg(from: image)
     }
 
     // MARK: - Private: Vision classification

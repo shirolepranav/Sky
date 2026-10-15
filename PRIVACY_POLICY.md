@@ -19,10 +19,11 @@ iCloud account that only you can access.
 
 ## What Sky does
 
-Sky blocks apps you choose after a daily time budget you set, using Apple's
-Screen Time (Family Controls) framework. To unlock them early, you record a
-short outdoor video that Sky checks on your device — for daylight, motion, and
-open sky — before removing the block.
+Every day at a time you choose, Sky pauses the apps you pick, using Apple's
+Screen Time (Family Controls) framework. To unlock them for the day you take a
+short walk outside and record a 5-second clip of the sky. Sky checks it on your
+device, together with your location and recent step count, before removing the
+block.
 
 ## Information Sky does not collect
 
@@ -45,13 +46,24 @@ stored (for badges like "Wanderer"), your coordinates are rounded to 0.01°
 iCloud account alongside your streak data (see **iCloud sync** below). Raw,
 unrounded location is never stored or transmitted.
 
-## Verification videos
+## Verification clips and your sky photos
 
-The ~30-second video you record to unlock a blocked app is analyzed entirely
-on-device using Apple's Vision framework, Core Location, and motion sensors.
+The 5-second clip you record to unlock your apps is analyzed entirely on-device
+using Apple's Vision framework, Core Location, and your phone's step counter.
 The video file is written to a temporary location and **deleted immediately**
 after analysis completes — whether verification passes or fails. It is never
 uploaded, never stored permanently, and never leaves your device.
+
+When a verification passes, Sky keeps **one still photo of the sky** from that
+clip so you can see and share "today's sky". These photos:
+
+- stay on your device only — they are never uploaded, never synced to iCloud,
+  and excluded from device backups;
+- carry no location or other metadata;
+- are limited to the last 30 days, and older ones are deleted automatically;
+- can all be deleted at any time in **Settings → Your skies**.
+
+A photo leaves your device only if you share it yourself.
 
 ## iCloud sync
 
@@ -96,10 +108,10 @@ library.
 
 | Permission | Why |
 |---|---|
-| Screen Time (Family Controls) | To let you select and block your own apps after your daily budget |
-| Camera | To record the outdoor verification video |
+| Screen Time (Family Controls) | To let you select and pause your own apps each day |
+| Camera | To record the short outdoor verification clip |
 | Location (When In Use) | To confirm you're outdoors during verification |
-| Motion & Fitness | To confirm real movement during verification (anti-spoofing) |
+| Motion & Fitness | To read your recent step count — the short walk verification asks for |
 | Notifications | For the local reminders described above |
 | Photos (Add Only) | To save a streak card you choose to share |
 

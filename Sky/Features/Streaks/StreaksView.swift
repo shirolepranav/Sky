@@ -29,6 +29,9 @@ struct StreaksView: View {
     @State private var showInsightsProGate = false
     @State private var showPaywall = false
     @State private var showShareSheet = false
+    /// Saved sky photos, newest first (Phase F). Loaded on appear — they only
+    /// change when a verification passes, which happens off this tab.
+    @State private var skies: [(day: String, image: UIImage)] = []
 
     private var progress: UserProgress { streakManager.progress }
     private var heroState: StreakInsights.HeroState { StreakInsights.heroState(progress) }
@@ -41,6 +44,7 @@ struct StreaksView: View {
                     streakHero.skyEntrance(0, revealed: revealed)
                     milestoneSection.skyEntrance(1, revealed: revealed)
                     statCards.skyEntrance(2, revealed: revealed)
+                    if !skies.isEmpty { skiesSection }
                     badgesSection.skyEntrance(3, revealed: revealed)
                     weeklyInsightsSection.skyEntrance(4, revealed: revealed)
                     Spacer(minLength: SkySpacing.s10)
@@ -98,9 +102,32 @@ struct StreaksView: View {
             .accessibilityIdentifier("streaks.home")
         }
         .onAppear {
+            let store = SkyPhotoStore.shared
+            skies = store.days().compactMap { day in store.image(forDay: day).map { (day, $0) } }
             revealed = true
             animateStreakIn()
         }
+    }
+
+    // MARK: - Your skies (Phase F)
+
+    private var skiesSection: some View {
+        VStack(alignment: .leading, spacing: SkySpacing.s3) {
+            Text("Your skies")
+                .skyText(.titleM)
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: SkySpacing.s2), count: 3),
+                      spacing: SkySpacing.s2) {
+                ForEach(skies, id: \.day) { sky in
+                    Color.clear
+                        .aspectRatio(1, contentMode: .fit)
+                        .overlay(Image(uiImage: sky.image).resizable().scaledToFill())
+                        .clipShape(RoundedRectangle(cornerRadius: SkyRadius.chip, style: .continuous))
+                        .accessibilityLabel("Sky from \(sky.day)")
+                }
+            }
+        }
+        .padding(.horizontal, SkyLayout.screenMargin)
+        .accessibilityIdentifier("streaks.skies")
     }
 
     // MARK: - Hero streak card

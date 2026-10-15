@@ -191,6 +191,10 @@ kind. Exact strings for built screens live in `Sky_App_Workflow.md §3.3`.
 
 - Verification videos are written to `temporaryDirectory` and **deleted right
   after** processing (pass or fail). No upload, ever.
+- The only verification media kept is **one sky still per passed day**
+  (`SkyPhotoStore`): metadata-free JPEG, Application Support, excluded from
+  backup, last 30 days, deletable in Settings. Never CloudKit, never uploaded —
+  it leaves the phone only through the user's own share sheet.
 - **Emergency-unlock reasons stay on-device** (App Group container) — never
   CloudKit, never any server.
 - GPS is rounded to 0.01° before any storage. No raw screen-time data leaves the

@@ -44,6 +44,9 @@ struct TodayView: View {
     @State private var showingAppSelection = false
     @State private var showingLimitConfig = false
     @State private var pendingBadge: BadgeID? = nil
+    /// Today's saved sky photo (Phase F), refreshed whenever the day's state may change.
+    @State private var todaysSky: UIImage? = nil
+    @State private var showingSkyShare = false
     #if DEBUG
     @State private var showingDebugMenu = false
     #endif
@@ -140,6 +143,11 @@ struct TodayView: View {
                             .padding(.horizontal, SkyLayout.screenMargin)
                             .skyEntrance(4, revealed: revealed)
 
+                        if appState == .verifiedToday, let todaysSky {
+                            todaysSkyCard(todaysSky)
+                                .padding(.horizontal, SkyLayout.screenMargin)
+                        }
+
                         Spacer(minLength: SkySpacing.s10)
                     }
                 }
@@ -153,6 +161,15 @@ struct TodayView: View {
             store = SharedDefaults()
             mascotManager.refreshState()
             revealed = true
+            todaysSky = SkyPhotoStore.shared.image(on: Date())
+        }
+        // A pass changes the mascot; that is also when today's photo appears.
+        .onChange(of: mascotManager.state) {
+            store = SharedDefaults()
+            todaysSky = SkyPhotoStore.shared.image(on: Date())
+        }
+        .sheet(isPresented: $showingSkyShare) {
+            StreakShareSheetView(progress: streakManager.progress) { showingSkyShare = false }
         }
         .fullScreenCover(isPresented: $showingVerification) {
             VerificationCoordinatorView {
@@ -277,6 +294,26 @@ struct TodayView: View {
 
             case .verifiedToday, .emergencyUnlocked, .unblocked, .paused:
                 EmptyView()
+            }
+        }
+    }
+
+    // MARK: - Today's sky (Phase F)
+
+    private func todaysSkyCard(_ image: UIImage) -> some View {
+        SkyCard {
+            VStack(alignment: .leading, spacing: SkySpacing.s3) {
+                Text("Today's sky")
+                    .skyText(.label, color: SkyColor.inkSoft)
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 180)
+                    .clipShape(RoundedRectangle(cornerRadius: SkyRadius.card, style: .continuous))
+                    .accessibilityLabel("Photo of today's sky")
+                SkySecondaryButton("Share today's sky") { showingSkyShare = true }
+                    .accessibilityIdentifier("today.shareSky")
             }
         }
     }

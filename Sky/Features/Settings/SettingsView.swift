@@ -17,6 +17,8 @@ struct SettingsView: View {
     @State private var streak  = SharedDefaults().notifStreakEnabled
     @State private var debugEnabled = DebugMenuFlag.isEnabled
     @State private var showPaywall = false
+    @State private var confirmDeleteSkies = false
+    @State private var skyCount = SkyPhotoStore.shared.days().count
 
     var body: some View {
         NavigationStack {
@@ -25,6 +27,7 @@ struct SettingsView: View {
                 appearanceSection
                 pauseSection
                 notificationsSection
+                skiesSection
                 accountSection
                 subscriptionSection
                 aboutSection
@@ -95,6 +98,28 @@ struct SettingsView: View {
         }
     }
 
+    /// Phase F: the saved sky photos live only on this phone; this is the one place
+    /// to remove them all.
+    private var skiesSection: some View {
+        Section {
+            Button("Delete saved skies", role: .destructive) { confirmDeleteSkies = true }
+                .disabled(skyCount == 0)
+                .confirmationDialog("Delete all \(skyCount) saved sky photos?",
+                                    isPresented: $confirmDeleteSkies, titleVisibility: .visible) {
+                    Button("Delete", role: .destructive) {
+                        SkyPhotoStore.shared.deleteAll()
+                        skyCount = 0
+                    }
+                }
+                .accessibilityIdentifier("settings.deleteSkies")
+        } header: {
+            Text("Your skies")
+        } footer: {
+            Text("One photo per verified day, from your sky clip. Kept on this phone only — never uploaded or synced. The last \(SkyPhotoStore.capacity) days are kept.")
+                .skyText(.caption, color: SkyColor.inkSoft)
+        }
+    }
+
     private var accountSection: some View {
         Section("Account") {
             NavigationLink("iCloud sync status") { SettingsAccountView() }
@@ -149,6 +174,7 @@ struct SettingsView: View {
         store = SharedDefaults()
         streak = store.notifStreakEnabled
         debugEnabled = DebugMenuFlag.isEnabled
+        skyCount = SkyPhotoStore.shared.days().count
     }
 
     private func reschedule() {

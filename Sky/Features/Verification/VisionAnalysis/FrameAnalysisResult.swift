@@ -12,6 +12,9 @@ struct FrameAnalysisResult: Equatable {
     let maxSkyPixelPercent: Double
     /// Number of frames actually analyzed (< total frames due to every-5th sampling).
     let analyzedFrameCount: Int
+    /// JPEG of the frame with the most sky, at share resolution — kept as
+    /// "today's sky" on a pass (SkyPhotoStore, DAILY_LOCK_PLAN.md Phase F).
+    var bestFrameJPEG: Data? = nil
 
     /// Sentinel used when vision analysis could not run (e.g., simulator, unit tests).
     static let zero = FrameAnalysisResult(

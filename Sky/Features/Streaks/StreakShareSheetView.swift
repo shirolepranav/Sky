@@ -21,6 +21,8 @@ struct StreakShareSheetView: View {
     let onDismiss: () -> Void
 
     @State private var rendered: Image? = nil
+    /// Read once — the card and the rendered bitmap must show the same photo.
+    @State private var skyImage = SkyPhotoStore.shared.latestImage()
     @State private var renderFailed = false
 
     var body: some View {
@@ -60,7 +62,7 @@ struct StreakShareSheetView: View {
         }
         .task {
             guard rendered == nil else { return }
-            if let image = StreakShareCardView.render(progress: progress) {
+            if let image = StreakShareCardView.render(progress: progress, skyImage: skyImage) {
                 rendered = Image(uiImage: image)
             } else {
                 renderFailed = true
@@ -84,7 +86,7 @@ struct StreakShareSheetView: View {
         } else {
             // Show the live view rather than the rendered bitmap so the preview
             // appears instantly and stays crisp at any scale.
-            StreakShareCardView(progress: progress)
+            StreakShareCardView(progress: progress, skyImage: skyImage)
                 .environment(\.dynamicTypeSize, .large)
                 .environment(\.colorScheme, .light)
                 .clipShape(RoundedRectangle(cornerRadius: SkyRadius.card, style: .continuous))

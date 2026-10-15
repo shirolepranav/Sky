@@ -173,8 +173,14 @@ try at least 9/10 times. Check the debug audit trail for every lock and notifica
 
 ## Status — 2026-10-14
 
-Phases A–E are implemented and uncommitted. Phase F is not started; it needs the
-privacy decision above.
+Phases A–E are committed (`d366b21`). Phase F was approved on 2026-10-14 and is
+implemented:
+- `SkyPhotoStore` keeps one metadata-free JPEG per passed day, for the last 30
+  days. It is excluded from backup and never synced.
+- `VisionAnalyzer` re-extracts the frame with the most sky at 1080 px.
+- The Today screen has a "Today's sky" card with Share; the share card shows the
+  photo; the Streaks tab has a "Your skies" grid; Settings has "Delete saved skies".
+- The privacy policy, the PRD §8 and the CLAUDE.md invariants are updated.
 
 Changes from the plan made during implementation:
 - **Lock-time changes apply immediately.** Only the very first arming after setup
