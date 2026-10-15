@@ -29,8 +29,10 @@ struct LimitConfigurationView: View {
 
     /// Quick picks shown as chips — the usual just-woke-up times. Only ones the
     /// view model allows are shown; every other time is in the "Other time" menu.
-    private static let quickPicks = [6 * 60 + 30, 7 * 60, 7 * 60 + 30, 8 * 60, 8 * 60 + 30, 9 * 60]
-        .filter { LimitConfigurationViewModel.lockTimeOptions.contains($0) }
+    private var quickPicks: [Int] {
+        [6 * 60 + 30, 7 * 60, 7 * 60 + 30, 8 * 60, 8 * 60 + 30, 9 * 60]
+            .filter { LimitConfigurationViewModel.lockTimeOptions.contains($0) }
+    }
 
     private var timeLabel: String { SharedDefaults.lockTimeLabel(minutes: viewModel.lockTimeMinutes) }
 
@@ -69,7 +71,7 @@ struct LimitConfigurationView: View {
 
                 LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: SkySpacing.s3), count: 3),
                           spacing: SkySpacing.s3) {
-                    ForEach(Self.quickPicks, id: \.self) { minutes in
+                    ForEach(quickPicks, id: \.self) { minutes in
                         Button(SharedDefaults.lockTimeLabel(minutes: minutes)) {
                             viewModel.lockTimeMinutes = minutes
                         }
