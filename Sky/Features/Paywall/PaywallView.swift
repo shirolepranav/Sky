@@ -3,10 +3,6 @@
 // one-time purchase, so there is one price card, no trial, and no tier choice.
 // One-shot post-verification upsell and all Pro-gate entry points land here.
 // Sky_App_Workflow.md §Group G S-PAY-01; Roadmap Phase 14.
-//
-// Sky Pop: the hero is a popSky block with the sticker Nimbus (the one loud
-// moment); the price card is the outlined tap target; the close button is an
-// outlined round chip.
 
 import StoreKit
 import SwiftUI
@@ -37,16 +33,13 @@ struct PaywallView: View {
                 scrollContent
             }
 
-            // Close button (always visible) — an outlined round Pop chip.
+            // Close button (always visible)
             Button(action: onDismiss) {
-                Image(systemName: "xmark")
-                    .font(SkyTextStyle.headline.font)
-                    .foregroundStyle(SkyColor.ink)
-                    .frame(width: SkyLayout.minTouchTarget, height: SkyLayout.minTouchTarget)
-                    .skyPopSurface(Circle(), fill: SkyColor.surface, outline: SkyColor.outline,
-                                   lineWidth: SkyStroke.outline, shadow: SkyPopShadow.chip)
+                Image(systemName: "xmark.circle.fill")
+                    .font(.system(size: 30, weight: .light))
+                    .foregroundStyle(SkyColor.inkMuted)
+                    .background(SkyColor.surface.opacity(0.8), in: Circle())
             }
-            .buttonStyle(.plain)
             .padding([.top, .trailing], SkySpacing.s5)
             .accessibilityLabel("Close")
         }
@@ -100,22 +93,15 @@ struct PaywallView: View {
 
     private var heroSection: some View {
         VStack(spacing: SkySpacing.s4) {
-            // Pop hero block: stays bright in dark mode → fixed-ink text.
-            VStack(spacing: SkySpacing.s3) {
-                NimbusView(state: .rainbow, size: 140)
+            NimbusView(state: .rainbow, size: 120)
 
-                Text("Sky Pro")
-                    .skyText(.titleXL, color: SkyColor.inkOnAccent)
-                    .multilineTextAlignment(.center)
-                    .accessibilityAddTraits(.isHeader)
+            Text("Sky Pro")
+                .skyText(.titleXL)
+                .multilineTextAlignment(.center)
 
-                Text("One purchase. Yours forever.")
-                    .skyText(.body, color: SkyColor.inkOnAccent)
-                    .multilineTextAlignment(.center)
-            }
-            .frame(maxWidth: .infinity)
-            .padding(SkySpacing.s6)
-            .background(SkyColor.popSky, in: RoundedRectangle(cornerRadius: SkyRadius.card, style: .continuous))
+            Text("One purchase. Yours forever.")
+                .skyText(.body, color: SkyColor.inkSoft)
+                .multilineTextAlignment(.center)
 
             VStack(alignment: .leading, spacing: SkySpacing.s3) {
                 FeatureBullet(icon: "infinity", text: "Unlimited apps.")

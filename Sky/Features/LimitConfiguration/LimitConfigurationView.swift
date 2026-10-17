@@ -9,12 +9,6 @@
 //
 // Entry points: SetupFlowView (first-run), S-SET-02 (Settings), Today's no-limit state.
 // Exit: onSave() is called after the toast finishes dismissing.
-//
-// Sky Pop (Sky Pop canvas board "LockTimePlus"): the chosen time is the loud
-// moment — a popSun block with the time in the display face — then six
-// common morning times as outlined chips (the selected one pushed in), an
-// "Other time" menu for the full range, Pop lock-day chips, and a Pop
-// "Lock at <time>" button.
 
 import SwiftUI
 
@@ -27,71 +21,29 @@ struct LimitConfigurationView: View {
     @State private var showToast = false
     @State private var showPaywall = false
 
-    /// Quick picks shown as chips — the usual just-woke-up times. Only ones the
-    /// view model allows are shown; every other time is in the "Other time" menu.
-    private var quickPicks: [Int] {
-        [6 * 60 + 30, 7 * 60, 7 * 60 + 30, 8 * 60, 8 * 60 + 30, 9 * 60]
-            .filter { LimitConfigurationViewModel.lockTimeOptions.contains($0) }
-    }
-
-    private var timeLabel: String { SharedDefaults.lockTimeLabel(minutes: viewModel.lockTimeMinutes) }
-
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: SkySpacing.s6) {
                 Spacer(minLength: SkySpacing.s6)
 
-                VStack(alignment: .leading, spacing: SkySpacing.s2) {
-                    Text("When should your apps nap?")
-                        .skyText(.titleXL)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .accessibilityAddTraits(.isHeader)
-                        .accessibilityIdentifier("limitConfig.title")
+                Text("When should your apps pause?")
+                    .skyText(.titleXL)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityIdentifier("limitConfig.title")
 
-                    Text("Each day at this time your selected apps pause. A short walk outside unlocks them until the next day.")
-                        .skyText(.bodyS, color: SkyColor.inkSoft)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
+                Text("Each day at this time your selected apps pause. A short walk outside unlocks them until the next day.")
+                    .skyText(.body, color: SkyColor.inkSoft)
+                    .fixedSize(horizontal: false, vertical: true)
 
-                // The loud moment: the chosen time on a sun block (info, not tappable).
-                VStack(spacing: SkySpacing.s1) {
-                    Text(timeLabel)
-                        .skyText(.numeralXL, color: SkyColor.inkOnAccent)
-                        .contentTransition(.numericText())
-                        .minimumScaleFactor(0.6)
-                        .lineLimit(1)
-                    Text("every morning")
-                        .skyText(.headline, color: SkyColor.inkOnAccent)
-                }
-                .frame(maxWidth: .infinity)
-                .padding(SkySpacing.s6)
-                .background(SkyColor.popSun, in: RoundedRectangle(cornerRadius: SkyRadius.card, style: .continuous))
-                .accessibilityElement(children: .combine)
-                .accessibilityLabel("Lock time \(timeLabel), every morning")
-
-                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: SkySpacing.s3), count: 3),
-                          spacing: SkySpacing.s3) {
-                    ForEach(quickPicks, id: \.self) { minutes in
-                        Button(SharedDefaults.lockTimeLabel(minutes: minutes)) {
-                            viewModel.lockTimeMinutes = minutes
+                SkyCard {
+                    Picker("Lock time", selection: $viewModel.lockTimeMinutes) {
+                        ForEach(LimitConfigurationViewModel.lockTimeOptions, id: \.self) { minutes in
+                            Text(SharedDefaults.lockTimeLabel(minutes: minutes)).tag(minutes)
                         }
-                        .buttonStyle(SkyChipButtonStyle(isSelected: viewModel.lockTimeMinutes == minutes))
                     }
+                    .pickerStyle(.wheel)
+                    .accessibilityIdentifier("limitConfig.timePicker")
                 }
-                .accessibilityIdentifier("limitConfig.quickPicks")
-
-                // Full range (every 30 min) for anyone outside the usual mornings.
-                Picker(selection: $viewModel.lockTimeMinutes) {
-                    ForEach(LimitConfigurationViewModel.lockTimeOptions, id: \.self) { minutes in
-                        Text(SharedDefaults.lockTimeLabel(minutes: minutes)).tag(minutes)
-                    }
-                } label: {
-                    Text("Other time")
-                }
-                .pickerStyle(.menu)
-                .tint(SkyColor.mossGreenDeep)
-                .frame(maxWidth: .infinity, alignment: .center)
-                .accessibilityIdentifier("limitConfig.timePicker")
 
                 VStack(alignment: .leading, spacing: SkySpacing.s3) {
                     HStack {
@@ -121,7 +73,7 @@ struct LimitConfigurationView: View {
                     .frame(maxWidth: .infinity, alignment: .center)
                     .accessibilityIdentifier("limitConfig.resetCaption")
 
-                SkyPopButton("Lock at \(timeLabel)") {
+                SkyPrimaryButton("Save") {
                     viewModel.save()
                     showToast = true
                 }
@@ -154,22 +106,33 @@ struct LimitConfigurationView: View {
     }
 }
 
-// One weekday toggle: a Pop chip, pushed in when the day is on. The chip
-// style is already 44pt tall and reports `.isSelected` to VoiceOver.
+// One weekday toggle. 44 pt minimum, selected = primarySky fill.
 private struct DayChip: View {
     let label: String
     let accessibilityName: String
     let isSelected: Bool
     let action: () -> Void
 
+    @ScaledMetric private var size: CGFloat = 44
+
     var body: some View {
         Button(action: action) {
             Text(label)
-                .skyText(.headline, color: isSelected ? SkyColor.surface : SkyColor.ink)
+                .skyText(.headline, color: isSelected ? SkyColor.inkOnAccent : SkyColor.inkSoft)
+                .frame(maxWidth: .infinity)
+                .frame(height: size)
+                .background(
+                    RoundedRectangle(cornerRadius: SkyRadius.chip, style: .continuous)
+                        .fill(isSelected ? SkyColor.primarySky : SkyColor.surface)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: SkyRadius.chip, style: .continuous)
+                        .strokeBorder(isSelected ? Color.clear : SkyColor.divider, lineWidth: 1)
+                )
         }
-        // Seven across, so the compact (narrow-padding) chip.
-        .buttonStyle(SkyChipButtonStyle(isSelected: isSelected, compact: true))
+        .buttonStyle(.plain)
         .accessibilityLabel(accessibilityName)
+        .accessibilityAddTraits(isSelected ? [.isSelected] : [])
     }
 }
 

@@ -12,11 +12,6 @@
 //
 // All derived values (hero state, milestone progress, the day strip) come from
 // StreakInsights, which computes them from the existing UserProgress fields.
-//
-// Sky Pop (Sky Pop canvas board "StreaksPlus"): the active streak is the one
-// loud moment — a popCoral hero with the count in the display face. Earned
-// badges are outlined popSun tiles you can tap; locked ones are dashed and
-// flat. The "This week" card is one outlined tap target.
 
 import SwiftUI
 
@@ -137,42 +132,7 @@ struct StreaksView: View {
 
     // MARK: - Hero streak card
 
-    @ViewBuilder
     private var streakHero: some View {
-        if heroState == .active {
-            activeHero
-        } else {
-            quietHero
-        }
-    }
-
-    /// Active streak: the coral hero. popCoral stays bright in dark mode, so
-    /// everything on it is the fixed `inkOnAccent`.
-    private var activeHero: some View {
-        VStack(alignment: .leading, spacing: SkySpacing.s4) {
-            HStack(alignment: .center) {
-                VStack(alignment: .leading, spacing: SkySpacing.s1) {
-                    Text("\(streakDisplayed)")
-                        .skyText(.numeralXL, color: SkyColor.inkOnAccent)
-                        .contentTransition(.numericText(value: Double(streakDisplayed)))
-                    Text(progress.currentStreak == 1 ? "day outside" : "days outside in a row")
-                        .skyText(.headline, color: SkyColor.inkOnAccent)
-                }
-                Spacer()
-                NimbusView(state: heroMascotState, size: 108)
-            }
-            dayStrip
-        }
-        .padding(SkySpacing.s6)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(SkyColor.popCoral, in: RoundedRectangle(cornerRadius: SkyRadius.card, style: .continuous))
-        .padding(.horizontal, SkyLayout.screenMargin)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(heroAccessibilityLabel)
-    }
-
-    /// No streak yet / streak ended: a calm card, no coral (nothing to celebrate).
-    private var quietHero: some View {
         SkyCard {
             VStack(spacing: SkySpacing.s4) {
                 NimbusView(state: heroMascotState, size: 108)
@@ -191,7 +151,16 @@ struct StreaksView: View {
                             .skyText(.bodyS, color: SkyColor.inkSoft)
                     }
                 case .active:
-                    EmptyView() // shown by `activeHero`
+                    VStack(spacing: SkySpacing.s1) {
+                        HStack(alignment: .firstTextBaseline, spacing: SkySpacing.s2) {
+                            FlameIcon(color: SkyColor.coralStreak, size: 36)
+                            Text("\(streakDisplayed)")
+                                .skyText(.display, color: SkyColor.coralStreak)
+                                .contentTransition(.numericText(value: Double(streakDisplayed)))
+                        }
+                        Text("day\(progress.currentStreak == 1 ? "" : "s")")
+                            .skyText(.titleM, color: SkyColor.inkSoft)
+                    }
                 }
 
                 dayStrip
@@ -223,27 +192,22 @@ struct StreaksView: View {
 
     private var dayStrip: some View {
         let marks = StreakInsights.lastSevenDays(progress: progress)
-        // On the coral hero, verified days are solid ink dots; on the quiet card, coral.
-        let onCoral = heroState == .active
-        let verified = onCoral ? SkyColor.inkOnAccent : SkyColor.popCoral
-        let missed = onCoral ? SkyColor.inkOnAccent.opacity(0.2) : SkyColor.inkDisabled
-        let caption = onCoral ? SkyColor.inkOnAccent : SkyColor.inkMuted
         return HStack(spacing: SkySpacing.s2) {
             ForEach(marks) { mark in
                 VStack(spacing: SkySpacing.s1) {
                     Circle()
-                        .fill(mark.isVerified ? verified : missed)
+                        .fill(mark.isVerified ? SkyColor.coralStreak : SkyColor.inkDisabled)
                         .frame(width: 12, height: 12)
                         .overlay {
                             if mark.isToday {
                                 Circle()
-                                    .strokeBorder(caption, lineWidth: 1.5)
+                                    .strokeBorder(SkyColor.inkSoft, lineWidth: 1.5)
                                     .frame(width: 18, height: 18)
                             }
                         }
                         .frame(height: 18)
                     Text(StreakInsights.weekdayInitial(for: mark.date))
-                        .skyText(.tabLabel, color: caption)
+                        .skyText(.tabLabel, color: SkyColor.inkMuted)
                 }
             }
         }
@@ -275,7 +239,7 @@ struct StreaksView: View {
                             Capsule()
                                 .fill(SkyColor.inkDisabled.opacity(0.5))
                             Capsule()
-                                .fill(SkyColor.popCoral)
+                                .fill(SkyColor.coralStreak)
                                 .frame(width: geo.size.width * milestone.fraction)
                         }
                     }
@@ -332,48 +296,21 @@ struct StreaksView: View {
             .padding(.horizontal, SkyLayout.screenMargin)
 
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: SkySpacing.s3) {
+                HStack(spacing: SkySpacing.s4) {
                     ForEach(previewBadges, id: \.self) { badge in
-                        badgeTile(badge)
+                        let isUnlocked = progress.unlockedBadges.contains(badge)
+                        VStack(spacing: SkySpacing.s1) {
+                            BadgeArtView(badge: badge, size: 52, locked: !isUnlocked)
+                                .saturation(isUnlocked ? 1 : 0)
+                            Text(badge.displayName)
+                                .skyText(.caption, color: isUnlocked ? SkyColor.ink : SkyColor.inkMuted)
+                                .lineLimit(1)
+                        }
+                        .frame(width: 64)
                     }
                 }
                 .padding(.horizontal, SkyLayout.screenMargin)
-                // Room for the tiles' hard shadow so the scroll view doesn't clip it.
-                .padding(.vertical, SkySpacing.s1)
             }
-        }
-    }
-
-    /// Earned badge: outlined sun tile that opens the badge grid. Locked badge:
-    /// dashed, flat, not tappable — it isn't yours yet.
-    @ViewBuilder
-    private func badgeTile(_ badge: BadgeID) -> some View {
-        let isUnlocked = progress.unlockedBadges.contains(badge)
-        let content = VStack(spacing: SkySpacing.s1) {
-            BadgeArtView(badge: badge, size: 52, locked: !isUnlocked)
-                .saturation(isUnlocked ? 1 : 0)
-            Text(badge.displayName)
-                .skyText(.caption, color: isUnlocked ? SkyColor.inkOnAccent : SkyColor.inkSoft)
-                .lineLimit(1)
-                .minimumScaleFactor(0.85)
-        }
-        .padding(SkySpacing.s2)
-        .frame(width: 84)
-
-        if isUnlocked {
-            Button { showBadgesGrid = true } label: { content }
-                .buttonStyle(SkyPopCardButtonStyle(fill: SkyColor.popSun, radius: SkyRadius.chip))
-                .accessibilityLabel("\(badge.displayName) badge, earned")
-                .accessibilityHint("Shows all badges")
-        } else {
-            content
-                .overlay(
-                    RoundedRectangle(cornerRadius: SkyRadius.chip, style: .continuous)
-                        .strokeBorder(SkyColor.cloudGreyDeep,
-                                      style: StrokeStyle(lineWidth: SkyStroke.outline, dash: [6, 4]))
-                )
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel("\(badge.displayName) badge, not yet earned")
         }
     }
 
@@ -391,13 +328,7 @@ struct StreaksView: View {
     // MARK: - Weekly insights
 
     private var weeklyInsightsSection: some View {
-        Button {
-            if storeKit.isPro {
-                showWeeklyInsights = true
-            } else {
-                showInsightsProGate = true
-            }
-        } label: {
+        SkyCard {
             HStack {
                 VStack(alignment: .leading, spacing: SkySpacing.s2) {
                     Text("This week")
@@ -409,16 +340,20 @@ struct StreaksView: View {
                 Spacer()
                 Image(systemName: storeKit.isPro ? "chevron.right" : "lock.fill")
                     .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(SkyColor.inkSoft)
-                    .accessibilityHidden(true)
+                    .foregroundStyle(SkyColor.inkMuted)
             }
-            .padding(SkySpacing.s5)
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .buttonStyle(SkyPopCardButtonStyle())
+        .onTapGesture {
+            if storeKit.isPro {
+                showWeeklyInsights = true
+            } else {
+                showInsightsProGate = true
+            }
+        }
         .padding(.horizontal, SkyLayout.screenMargin)
         .accessibilityLabel("This week. \(insightsSubtitle)")
         .accessibilityHint(storeKit.isPro ? "View weekly insights" : "Pro feature. Tap to see Pro.")
+        .accessibilityAddTraits(.isButton)
     }
 
     private var insightsSubtitle: String {
@@ -490,23 +425,3 @@ private struct StatCardView: View {
         .environmentObject(CloudKitSyncService())
         .environmentObject(StoreKitService())
 }
-
-// Uses the DEBUG-only seed hook, so it must stay inside the guard (a preview
-// outside it breaks the Release build — CLAUDE.md known gap 2).
-#if DEBUG
-#Preview("S-STREAK-01 — Active streak, dark") {
-    let manager = StreakManager()
-    var progress = UserProgress()
-    progress.currentStreak = 12
-    progress.longestStreak = 19
-    progress.totalVerifications = 30
-    progress.lastVerificationDate = Date()
-    progress.unlockedBadges = [.firstLight]
-    manager.debugReplaceProgress(progress)
-    return StreaksView()
-        .environmentObject(manager)
-        .environmentObject(CloudKitSyncService())
-        .environmentObject(StoreKitService())
-        .preferredColorScheme(.dark)
-}
-#endif

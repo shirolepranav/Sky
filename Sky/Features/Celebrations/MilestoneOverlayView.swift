@@ -2,10 +2,6 @@
 // S-CEL-02 — Full-screen streak-milestone celebration shown before S-VER-06
 // when a streak count hits 3, 7, 14, 30, 60, or 100.
 // Sky_App_Workflow.md §Group H S-CEL-02; Roadmap Phase 11.
-//
-// Sky Pop: a milestone is sun-yellow (one colour, one meaning), so the whole
-// ground is popSun with the count in the display face. popSun stays bright in
-// dark mode, so all text on it is the fixed `inkOnAccent`.
 
 import SwiftUI
 
@@ -38,8 +34,17 @@ struct MilestoneOverlayView: View {
 
     var body: some View {
         ZStack {
-            // The one loud moment: full-bleed milestone sun.
-            SkyColor.popSun.ignoresSafeArea()
+            // Adaptive celebration backdrop: warm cream→sky in light, a calm
+            // night-sky gradient in dark, so the adaptive `ink` text stays legible.
+            LinearGradient(
+                colors: [
+                    Color(light: Color(hex: "FFF6E5"), dark: Color(hex: "15171F")),
+                    Color(light: Color(hex: "A8D8EA").opacity(0.4), dark: Color(hex: "232838"))
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+            .ignoresSafeArea()
 
             // Spec: confetti only when Reduce Motion is off (Workflow §3.6).
             if !reduceMotion {
@@ -56,18 +61,18 @@ struct MilestoneOverlayView: View {
                     dayCount
 
                     Text("day streak!")
-                        .skyText(.titleL, color: SkyColor.inkOnAccent)
+                        .skyText(.titleL, color: SkyColor.inkSoft)
                 }
 
                 Text(milestoneLine)
-                    .skyText(.body, color: SkyColor.inkOnAccent)
+                    .skyText(.body, color: SkyColor.inkSoft)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, SkyLayout.screenMargin)
 
                 Spacer()
 
                 Text("Tap to continue")
-                    .skyText(.caption, color: SkyColor.inkOnAccent)
+                    .skyText(.caption, color: SkyColor.inkMuted)
                     .padding(.bottom, SkySpacing.s8)
             }
         }
@@ -121,7 +126,7 @@ struct MilestoneOverlayView: View {
     }
 
     @ViewBuilder private var dayCount: some View {
-        let count = Text("\(streakDays)").skyText(.numeralXL, color: SkyColor.inkOnAccent)
+        let count = Text("\(streakDays)").skyText(.display)
         if reduceMotion {
             count
         } else {
@@ -147,9 +152,4 @@ struct MilestoneOverlayView: View {
 
 #Preview("S-CEL-02 — 30-day milestone") {
     MilestoneOverlayView(streakDays: 30, onAdvance: {})
-}
-
-#Preview("S-CEL-02 — dark") {
-    MilestoneOverlayView(streakDays: 14, onAdvance: {})
-        .preferredColorScheme(.dark)
 }

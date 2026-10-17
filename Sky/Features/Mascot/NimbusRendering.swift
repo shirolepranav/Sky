@@ -9,12 +9,6 @@
 // heavy ink never double-draws. Under Reduce Motion the two complete states
 // crossfade as flattened layers over 0.2s instead (Sky_App_Workflow.md §3.6).
 // All geometry lives in the prototype's 200×156 viewBox (nimbus.jsx).
-//
-// Sky Pop "sticker" style (DESIGN_SYSTEM.md §8): an ink silhouette is drawn
-// under the fill — once in place (a thick outline) and once offset ~5pt (a
-// hard shadow) — with slightly bigger eyes, bolder strokes and stronger coral
-// cheeks. It's applied at draw time only, so the per-state render models (and
-// the morph between them) are identical in both styles.
 
 import Foundation
 import SwiftUI
@@ -340,17 +334,7 @@ struct NimbusRenderModel: Equatable {
 
 /// Draws Nimbus into a `GraphicsContext` already scaled to the 200×156 space.
 enum NimbusRenderer {
-    /// Face ink. Classic adapts to dark mode; the sticker's white cloud stays
-    /// white in dark mode, so its face keeps fixed ink to stay visible.
-    private static func ink(_ sticker: Bool) -> Color {
-        sticker ? SkyColor.inkOnAccent : SkyColor.ink
-    }
-
-    // Sticker geometry (Sky Pop boards: silhouette stroke 10, offset (5, 6)).
-    private static let stickerOutlineWidth: CGFloat = 10
-    private static let stickerShadowOffset = CGSize(width: 5, height: 6)
-    private static let stickerEyeScale: CGFloat = 1.3    // eye arcs / circles grow ~30%
-    private static let stickerStrokeScale: CGFloat = 1.4 // bolder eye + mouth strokes
+    private static var ink: Color { SkyColor.ink }
 
     /// Entry point. `t == 1` (or `from == to`) draws the target state exactly
     /// as the pre-morph implementation did; `crossfadeOnly` is the Reduce
@@ -364,12 +348,11 @@ enum NimbusRenderer {
         t: Double,
         time: TimeInterval? = nil,
         crossfadeOnly: Bool,
-        expressionOverride: NimbusExpression? = nil,
-        sticker: Bool = false
+        expressionOverride: NimbusExpression? = nil
     ) {
         let toModel = NimbusRenderModel.model(for: to, expressionOverride: expressionOverride)
         guard from != to, t < 1 else {
-            drawState(&ctx, model: toModel, time: time, sticker: sticker)
+            drawState(&ctx, model: toModel, time: time)
             return
         }
         let fromModel = NimbusRenderModel.model(for: from, expressionOverride: expressionOverride)
@@ -377,11 +360,11 @@ enum NimbusRenderer {
         if crossfadeOnly {
             ctx.drawLayer { layer in
                 layer.opacity = 1 - t
-                drawState(&layer, model: fromModel, time: nil, sticker: sticker)
+                drawState(&layer, model: fromModel, time: nil)
             }
             ctx.drawLayer { layer in
                 layer.opacity = t
-                drawState(&layer, model: toModel, time: nil, sticker: sticker)
+                drawState(&layer, model: toModel, time: nil)
             }
             return
         }
@@ -394,21 +377,20 @@ enum NimbusRenderer {
         drawAccessories(&ctx, model: toModel, opacity: t, time: time)
 
         var body = breathingContext(ctx, time: time)
-        drawCloud(&body, model: blended, sticker: sticker)
+        drawCloud(&body, model: blended)
         // Blinks are suppressed mid-morph so they never fight the eye morph.
-        drawFaceMorph(&body, from: fromModel, to: toModel, blended: blended, t: t, sticker: sticker)
+        drawFaceMorph(&body, from: fromModel, to: toModel, blended: blended, t: t)
     }
 
     // MARK: Single-state drawing (t = 0 or 1)
 
     static func drawState(
-        _ ctx: inout GraphicsContext, model: NimbusRenderModel, time: TimeInterval?,
-        sticker: Bool = false
+        _ ctx: inout GraphicsContext, model: NimbusRenderModel, time: TimeInterval?
     ) {
         drawAccessories(&ctx, model: model, opacity: 1, time: time)
         var body = breathingContext(ctx, time: time)
-        drawCloud(&body, model: model, sticker: sticker)
-        drawFace(&body, model: model, blink: NimbusIdle.blink(at: time), sticker: sticker)
+        drawCloud(&body, model: model)
+        drawFace(&body, model: model, blink: NimbusIdle.blink(at: time))
     }
 
     /// A context copy scaled by the breathing factor around the cloud's
@@ -466,11 +448,10 @@ enum NimbusRenderer {
     }
 
     private static func strokeQuad(
-        _ ctx: inout GraphicsContext, _ spec: NimbusQuadSpec, alpha: Double = 1,
-        sticker: Bool = false
+        _ ctx: inout GraphicsContext, _ spec: NimbusQuadSpec, alpha: Double = 1
     ) {
         ctx.stroke(
-            quadPath(spec), with: .color(ink(sticker).opacity(alpha)),
+            quadPath(spec), with: .color(ink.opacity(alpha)),
             style: StrokeStyle(lineWidth: spec.width, lineCap: .round)
         )
     }
@@ -557,44 +538,9 @@ enum NimbusRenderer {
 
     // MARK: Cloud body
 
-    /// The four overlapping shapes that make the cloud silhouette.
-    private static var cloudSilhouette: Path {
-        var p = Path()
-        p.addEllipse(in: CGRect(x: 22, y: 62, width: 156, height: 56)) // base 100,90 r78×28
-        p.addEllipse(in: CGRect(x: 32, y: 45, width: 56, height: 56))  // left 60,73 r28
-        p.addEllipse(in: CGRect(x: 62, y: 15, width: 76, height: 76))  // top 100,53 r38
-        p.addEllipse(in: CGRect(x: 108, y: 36, width: 64, height: 64)) // right 140,68 r32
-        return p
-    }
-
-    /// Sticker underlay: an ink silhouette offset into a hard shadow, then the
-    /// same silhouette in place, stroked thick so it shows as an outline once
-    /// the fill is painted on top.
-    private static func drawStickerOutline(_ ctx: inout GraphicsContext) {
-        // Fixed ink: the outline must read on the white cloud in both modes.
-        let outline = SkyColor.outlineOnAccent
-        let style = StrokeStyle(lineWidth: stickerOutlineWidth, lineJoin: .round)
-        let shape = cloudSilhouette
-        let shadow = shape.offsetBy(dx: stickerShadowOffset.width, dy: stickerShadowOffset.height)
-        // `.fill` with the default non-zero winding fills the union of the shapes.
-        ctx.fill(shadow, with: .color(outline))
-        ctx.stroke(shadow, with: .color(outline), style: style)
-        ctx.fill(shape, with: .color(outline))
-        ctx.stroke(shape, with: .color(outline), style: style)
-    }
-
-    private static func drawCloud(
-        _ ctx: inout GraphicsContext, model: NimbusRenderModel, sticker: Bool = false
-    ) {
+    private static func drawCloud(_ ctx: inout GraphicsContext, model: NimbusRenderModel) {
         let shadow = model.shadow.color
         let fill = model.fill.color
-
-        if sticker {
-            // The ink shadow replaces the soft tinted one.
-            drawStickerOutline(&ctx)
-            ctx.fill(cloudSilhouette, with: .color(fill))
-            return
-        }
 
         // Soft shadow (group translated down 2px)
         fillEllipse(&ctx, 100, 94, 78, 28, shadow, 0.6)
@@ -612,100 +558,76 @@ enum NimbusRenderer {
     // MARK: Face
 
     private static func drawHighlightAndCheeks(
-        _ ctx: inout GraphicsContext, model: NimbusRenderModel, sticker: Bool = false
+        _ ctx: inout GraphicsContext, model: NimbusRenderModel
     ) {
         // Top-left highlight (dimmer on grey/rainy)
         fillEllipse(&ctx, 78, 42, 14, 6, .white, model.highlightOpacity)
 
-        // Cheeks. The sticker doubles their strength (coral, near-solid on the
-        // happy states) and makes them a touch bigger.
-        let alpha = sticker ? min(1, model.cheekAlpha * 2) : model.cheekAlpha
-        let rx = sticker ? model.cheekRX + 1 : model.cheekRX
-        let ry = sticker ? model.cheekRY + 0.5 : model.cheekRY
+        // Cheeks
         fillEllipse(&ctx, model.cheekLeft.x, model.cheekLeft.y,
-                    rx, ry, model.cheekColor.color, alpha)
+                    model.cheekRX, model.cheekRY, model.cheekColor.color, model.cheekAlpha)
         fillEllipse(&ctx, model.cheekRight.x, model.cheekRight.y,
-                    rx, ry, model.cheekColor.color, alpha)
+                    model.cheekRX, model.cheekRY, model.cheekColor.color, model.cheekAlpha)
     }
 
     private static func drawFace(
-        _ ctx: inout GraphicsContext, model: NimbusRenderModel, blink: Double = 1,
-        sticker: Bool = false
+        _ ctx: inout GraphicsContext, model: NimbusRenderModel, blink: Double = 1
     ) {
-        drawHighlightAndCheeks(&ctx, model: model, sticker: sticker)
-        drawEyes(&ctx, spec: .spec(for: model.expr), alpha: 1, blink: blink, sticker: sticker)
-        drawMouth(&ctx, spec: .spec(for: model.expr), alpha: 1, sticker: sticker)
+        drawHighlightAndCheeks(&ctx, model: model)
+        drawEyes(&ctx, spec: .spec(for: model.expr), alpha: 1, blink: blink)
+        drawMouth(&ctx, spec: .spec(for: model.expr), alpha: 1)
     }
 
     private static func drawFaceMorph(
         _ ctx: inout GraphicsContext,
         from: NimbusRenderModel, to: NimbusRenderModel,
-        blended: NimbusRenderModel, t: Double, sticker: Bool = false
+        blended: NimbusRenderModel, t: Double
     ) {
-        drawHighlightAndCheeks(&ctx, model: blended, sticker: sticker)
+        drawHighlightAndCheeks(&ctx, model: blended)
 
         // Eyes: lerp arcs↔arcs, crossfade anything involving filled circles.
         let fromEyes = NimbusEyeSpec.spec(for: from.expr)
         let toEyes = NimbusEyeSpec.spec(for: to.expr)
         if case let .arcs(fl, fr) = fromEyes, case let .arcs(tl, tr) = toEyes {
-            drawEyes(&ctx, spec: .arcs(left: .lerp(fl, tl, t), right: .lerp(fr, tr, t)), alpha: 1,
-                     sticker: sticker)
+            drawEyes(&ctx, spec: .arcs(left: .lerp(fl, tl, t), right: .lerp(fr, tr, t)), alpha: 1)
         } else if fromEyes == toEyes {
-            drawEyes(&ctx, spec: toEyes, alpha: 1, sticker: sticker)
+            drawEyes(&ctx, spec: toEyes, alpha: 1)
         } else {
-            drawEyes(&ctx, spec: fromEyes, alpha: NimbusMorphMath.outgoingAlpha(t), sticker: sticker)
-            drawEyes(&ctx, spec: toEyes, alpha: NimbusMorphMath.incomingAlpha(t), sticker: sticker)
+            drawEyes(&ctx, spec: fromEyes, alpha: NimbusMorphMath.outgoingAlpha(t))
+            drawEyes(&ctx, spec: toEyes, alpha: NimbusMorphMath.incomingAlpha(t))
         }
 
         // Mouth: same rules.
         let fromMouth = NimbusMouthSpec.spec(for: from.expr)
         let toMouth = NimbusMouthSpec.spec(for: to.expr)
         if case let .stroked(fq) = fromMouth, case let .stroked(tq) = toMouth {
-            drawMouth(&ctx, spec: .stroked(.lerp(fq, tq, t)), alpha: 1, sticker: sticker)
+            drawMouth(&ctx, spec: .stroked(.lerp(fq, tq, t)), alpha: 1)
         } else if fromMouth == toMouth {
-            drawMouth(&ctx, spec: toMouth, alpha: 1, sticker: sticker)
+            drawMouth(&ctx, spec: toMouth, alpha: 1)
         } else {
-            drawMouth(&ctx, spec: fromMouth, alpha: NimbusMorphMath.outgoingAlpha(t), sticker: sticker)
-            drawMouth(&ctx, spec: toMouth, alpha: NimbusMorphMath.incomingAlpha(t), sticker: sticker)
+            drawMouth(&ctx, spec: fromMouth, alpha: NimbusMorphMath.outgoingAlpha(t))
+            drawMouth(&ctx, spec: toMouth, alpha: NimbusMorphMath.incomingAlpha(t))
         }
     }
 
     private static func drawEyes(
-        _ ctx: inout GraphicsContext, spec: NimbusEyeSpec, alpha: Double, blink: Double = 1,
-        sticker: Bool = false
+        _ ctx: inout GraphicsContext, spec: NimbusEyeSpec, alpha: Double, blink: Double = 1
     ) {
         guard alpha > 0 else { return }
         let squash = CGFloat(blink)
         switch spec {
         case .circles:
-            // Blink squashes the eyes vertically around their centres. The
-            // sticker's eyes and glints are ~30% bigger.
-            let r: CGFloat = sticker ? 4 * stickerEyeScale : 4
-            let glint: CGFloat = sticker ? 1.3 * stickerEyeScale : 1.3
-            let glintShift: CGFloat = sticker ? 2 : 1.5
-            fillEllipse(&ctx, 82, 70, r, r * squash, ink(sticker), alpha)
-            fillEllipse(&ctx, 118, 70, r, r * squash, ink(sticker), alpha)
-            fillEllipse(&ctx, 82 + glintShift, 70 - glintShift, glint, glint * squash, .white, alpha)
-            fillEllipse(&ctx, 118 + glintShift, 70 - glintShift, glint, glint * squash, .white, alpha)
+            // Blink squashes the eyes vertically around their centres.
+            fillEllipse(&ctx, 82, 70, 4, 4 * squash, ink, alpha)
+            fillEllipse(&ctx, 118, 70, 4, 4 * squash, ink, alpha)
+            fillEllipse(&ctx, 83.5, 68.5, 1.3, 1.3 * squash, .white, alpha)
+            fillEllipse(&ctx, 119.5, 68.5, 1.3, 1.3 * squash, .white, alpha)
         case let .arcs(left, right):
             // Blink flattens the arcs: the control point sinks toward the
             // chord so the curve closes to a near-line.
-            let l = sticker ? stickerized(left, scale: stickerEyeScale) : left
-            let r = sticker ? stickerized(right, scale: stickerEyeScale) : right
-            strokeQuad(&ctx, flattened(l, by: blink), alpha: alpha, sticker: sticker)
-            strokeQuad(&ctx, flattened(r, by: blink), alpha: alpha, sticker: sticker)
+            strokeQuad(&ctx, flattened(left, by: blink), alpha: alpha)
+            strokeQuad(&ctx, flattened(right, by: blink), alpha: alpha)
         }
-    }
-
-    /// Sticker version of a stroked feature: scaled about its own chord
-    /// midpoint by `scale`, stroke width ×`stickerStrokeScale`.
-    private static func stickerized(_ quad: NimbusQuadSpec, scale: CGFloat) -> NimbusQuadSpec {
-        let mid = CGPoint(x: (quad.a.x + quad.b.x) / 2, y: (quad.a.y + quad.b.y) / 2)
-        func grow(_ p: CGPoint) -> CGPoint {
-            CGPoint(x: mid.x + (p.x - mid.x) * scale, y: mid.y + (p.y - mid.y) * scale)
-        }
-        return NimbusQuadSpec(a: grow(quad.a), b: grow(quad.b), control: grow(quad.control),
-                              width: quad.width * stickerStrokeScale)
     }
 
     private static func flattened(_ quad: NimbusQuadSpec, by blink: Double) -> NimbusQuadSpec {
@@ -717,21 +639,19 @@ enum NimbusRenderer {
     }
 
     private static func drawMouth(
-        _ ctx: inout GraphicsContext, spec: NimbusMouthSpec, alpha: Double,
-        sticker: Bool = false
+        _ ctx: inout GraphicsContext, spec: NimbusMouthSpec, alpha: Double
     ) {
         guard alpha > 0 else { return }
         switch spec {
         case let .stroked(quad):
-            // Sticker: same size, bolder line.
-            strokeQuad(&ctx, sticker ? stickerized(quad, scale: 1) : quad, alpha: alpha, sticker: sticker)
+            strokeQuad(&ctx, quad, alpha: alpha)
         case .beamingFill:
             var p = Path()
             p.move(to: CGPoint(x: 88, y: 82))
             p.addQuadCurve(to: CGPoint(x: 112, y: 82), control: CGPoint(x: 100, y: 96))
             p.addQuadCurve(to: CGPoint(x: 88, y: 82), control: CGPoint(x: 100, y: 90))
             p.closeSubpath()
-            ctx.fill(p, with: .color(ink(sticker).opacity(alpha)))
+            ctx.fill(p, with: .color(ink.opacity(alpha)))
         }
     }
 }

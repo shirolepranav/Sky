@@ -160,11 +160,8 @@ validates Swift/type correctness only — never iOS layout or runtime behavior.
    `mossGreen` is for tints, nav-active, and checkmarks on light backgrounds.
 4. **One color, one meaning** (DESIGN_SYSTEM §2). Coral = streak/alert/paused.
    Sun yellow = verified/milestone. Don't use accents decoratively.
-5. **Sky Pop: ink outline + hard shadow = tappable** (DESIGN_SYSTEM §1, §6).
-   Buttons, chips, selectable tiles and badges get a 2.5–3pt `outline` border plus
-   a solid offset shadow (radius 0) via `skyPopSurface` / `SkyPopButtonStyle` /
-   `SkyChipButtonStyle`. Info-only cards keep the hairline `divider` border. One
-   loud moment per screen; mascot-first.
+5. **Calm, soft, mascot-first.** Cards use a hairline `divider` border, not heavy
+   shadows. The "pressable" button look is a *solid offset* shadow (radius 0).
 6. **Subtle motion only.** Nimbus has a ~2s idle bob and ~0.5s state transitions.
    Respect `accessibilityReduceMotion` — freeze loops, shorten transitions.
 7. **Min touch target 44×44.** Buttons are full-width by default.

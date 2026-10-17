@@ -27,10 +27,9 @@ tokens — they are the foundation every screen depends on.
 2. **AA contrast for white-on-fill.** Use `mossGreenAction` (`#52822A`) for
    filled controls with white labels; `mossGreen` is a tint/nav/checkmark color
    only. New filled+white-label components must clear 4.5:1.
-3. **Sky Pop tappable outline** (DESIGN_SYSTEM §6). Tappable = ink `outline`
-   border (`SkyStroke`) + hard offset shadow (`SkyPopShadow`, radius 0) drawn with
-   `skyPopSurface`; on press the control slides into its shadow. Info-only cards
-   keep the hairline `divider` border. On a Pop ground use `outlineOnAccent`.
+3. **Calm, soft.** Hairline `divider` borders over heavy shadows. The pressable
+   button shadow is a *solid offset* (`.shadow(radius: 0, y: 2)`), dropped on
+   press while the control translates down 2px.
 4. **One color, one meaning** (§2). Don't repurpose an accent.
 5. **Motion:** subtle only; honor `accessibilityReduceMotion`.
 6. **API shape:** match the existing components — a `ButtonStyle` + a thin

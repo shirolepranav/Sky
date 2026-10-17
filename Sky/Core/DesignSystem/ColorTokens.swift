@@ -61,7 +61,7 @@ enum SkyColor {
     static let primarySkyDeep = Color(hex: "7AB8D0")    // hover / active
     // Cream is a *surface* (chips, shield, cream cards), so it must darken in
     // dark mode — otherwise the now-adaptive `ink` text on it would be unreadable.
-    static let warmCream = Color(light: Color(hex: "FFF6E5"), dark: Color(hex: "232633"))     // surfaces, chips
+    static let warmCream = Color(light: Color(hex: "FFF6E5"), dark: Color(hex: "232633"))     // surfaces, shield, chips
     static let warmCreamDeep = Color(light: Color(hex: "F5EAD0"), dark: Color(hex: "2C3040")) // pressed cream
     static let mossGreen = Color(hex: "7CB342")         // tints, nav active, success on light
     static let mossGreenDeep = Color(hex: "5C8A2E")     // green text/icons on white
@@ -74,27 +74,6 @@ enum SkyColor {
     static let cloudGreyDeep = Color(hex: "9BA9B6")     // pressed grey
     static let sunYellow = Color(hex: "FFD66B")         // verified, milestones, badges
     static let sunYellowDeep = Color(hex: "E5B843")     // yellow shadow / accent
-
-    // MARK: Sky Pop palette — DESIGN_SYSTEM.md §2 "Sky Pop accents"
-    // Punchier siblings of the pastel accents above, for the "one loud moment"
-    // per screen. Same one-colour-one-meaning roles as their pastel twins.
-    // They stay bright in dark mode (they are grounds, not surfaces), so put
-    // `inkOnAccent` text and `outlineOnAccent` outlines on top of them.
-    static let popSky = Color(hex: "8FD3F0")    // full-bleed hero ground (Today, celebration)
-    static let popCoral = Color(hex: "FF7A66")  // streak — ink label clears AA (4.7:1)
-    static let popSun = Color(hex: "FFC93C")    // verified / milestone; also the shield ground
-
-    // MARK: Outlines — DESIGN_SYSTEM.md §6 "Tappable outline"
-    /// Ink outline + hard offset shadow marks an element as tappable. Adaptive:
-    /// ink on light surfaces; in dark mode a near-black `darkOutline`, deeper than
-    /// `darkBg`, so controls get a dark rim and drop, not a light halo.
-    static let outline = Color(light: Color(hex: "2D3748"), dark: Color(hex: "08090D"))
-    /// Outline of a disabled Pop control (no shadow): soft grey on light, the
-    /// same near-black rim on dark.
-    static let outlineDisabled = Color(light: Color(hex: "9CA3AF"), dark: Color(hex: "08090D"))
-    /// Outline for tappable elements sitting on a bright Pop ground (popSky /
-    /// popSun / popCoral). Those grounds don't darken, so this stays ink.
-    static let outlineOnAccent = Color(hex: "2D3748")
 
     // MARK: Text — adaptive (light value / dark value). Never pure #000/#FFF.
     static let ink = Color(light: Color(hex: "2D3748"), dark: Color(hex: "F0F4F8"))     // primary text
@@ -120,7 +99,6 @@ enum SkyColor {
     static let darkInk = Color(hex: "F0F4F8")           // primary text on dark
     static let darkInkSoft = Color(hex: "A8B3C2")       // secondary text on dark
     static let darkDivider = Color.white.opacity(0.08)  // dividers on dark
-    static let darkOutline = Color(hex: "08090D")       // Sky Pop outline + shadow on dark
 }
 
 #Preview("Color tokens") {
@@ -132,10 +110,6 @@ enum SkyColor {
         ("coralStreak", SkyColor.coralStreak),
         ("cloudGrey", SkyColor.cloudGrey),
         ("sunYellow", SkyColor.sunYellow),
-        ("popSky", SkyColor.popSky),
-        ("popCoral", SkyColor.popCoral),
-        ("popSun", SkyColor.popSun),
-        ("outline", SkyColor.outline),
         ("ink", SkyColor.ink),
         ("surface", SkyColor.surface),
     ]

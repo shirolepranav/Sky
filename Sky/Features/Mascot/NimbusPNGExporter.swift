@@ -9,10 +9,6 @@
 //
 // After copying, UIImage(named: "NimbusCloudy") in SkyShieldConfiguration
 // will load the correct mascot at the device's screen scale.
-//
-// NimbusView defaults to the Sky Pop sticker style, so the export is the
-// outlined sticker that sits on the sun-yellow shield. (The committed PNGs
-// were rendered from the same geometry; re-export here to regenerate them.)
 
 #if DEBUG
 import SwiftUI
@@ -33,7 +29,7 @@ struct NimbusPNGExporter: View {
                 .buttonStyle(.borderedProminent)
         }
         .padding(32)
-        .background(SkyColor.popSun) // preview against the real shield ground
+        .background(Color(hex: "FFF6E5"))
     }
 
     private func export() {

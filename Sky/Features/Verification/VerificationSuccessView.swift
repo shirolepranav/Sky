@@ -2,12 +2,10 @@
 // S-VER-06 — Rewards the user, clears the shield, and writes today-state flags.
 // Sky_App_Workflow.md §Part 2 S-VER-06; Tech Spec §7.6.
 //
-// A pass unlocks the apps until the next lock time (DAILY_LOCK_PLAN.md); the
-// copy names that time so it never reads as "until midnight".
-//
-// Sky Pop (Sky Pop canvas board "CelebratePop"): full-bleed popSky, a tilted
-// instant-photo sticker of today's sky with a sun "Day N!" badge, display-face
-// title, then Share sky (cream) + Done (primary) Pop buttons.
+// A pass buys one *session* of usage, not the rest of the day: the shield comes
+// back when the next rung of the ladder fires (DeviceActivityService). The copy
+// has to say so — promising "until midnight" and then locking at 2pm reads as a
+// bug even when it is the intended design.
 
 import SwiftUI
 
@@ -24,16 +22,14 @@ struct VerificationSuccessView: View {
     @State private var showUnlockError: Bool = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    /// Today's sky still, saved by the verification pipeline before this
-    /// screen appears (SkyPhotoStore). Nil at night (camera check waived) or
-    /// if the frame couldn't be kept — Nimbus fills the frame instead.
-    @State private var skyPhoto: UIImage? = SkyPhotoStore.shared.image(on: Date())
-
     var body: some View {
         ZStack {
-            // The one loud moment: full-bleed sky (stays bright in dark mode,
-            // so everything on it uses the fixed-ink "on accent" tokens).
-            SkyColor.popSky.ignoresSafeArea()
+            LinearGradient(
+                colors: [SkyColor.surface, SkyColor.warmCream],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .ignoresSafeArea()
 
             // Spec: "Confetti optional (Reduce Motion off)" — S-VER-06.
             if !reduceMotion {
@@ -42,48 +38,33 @@ struct VerificationSuccessView: View {
             }
 
             VStack(spacing: SkySpacing.s5) {
-                Spacer(minLength: SkySpacing.s4)
+                Spacer()
 
-                polaroid
+                NimbusView(state: mascotState, size: 200)
 
-                Text("That's the stuff.")
-                    .skyText(.display, color: SkyColor.inkOnAccent)
+                Text("Verified ☀")
+                    .skyText(.titleL)
                     .multilineTextAlignment(.center)
-                    .accessibilityAddTraits(.isHeader)
 
                 Text("Apps are open until your next lock, \(store.lockTimeLabel). Enjoy.")
-                    .skyText(.body, color: SkyColor.inkOnAccent)
+                    .skyText(.body, color: SkyColor.inkSoft)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, SkyLayout.screenMargin)
 
-                SkyPopStreakBadge(days: displayedStreak)
+                SkyStreakChip(days: displayedStreak)
 
-                Spacer(minLength: SkySpacing.s4)
+                Spacer()
 
                 if showUnlockError {
                     Text("Couldn't fully clear shields — restart Sky if apps remain blocked.")
-                        .skyText(.bodyS, color: SkyColor.inkOnAccent)
+                        .skyText(.bodyS, color: SkyColor.coralStreak)
                         .multilineTextAlignment(.center)
                         .padding(.horizontal, SkyLayout.screenMargin)
                 }
 
-                HStack(spacing: SkySpacing.s3) {
-                    if let skyPhoto {
-                        // The still leaves the phone only through the user's own
-                        // share sheet (CLAUDE.md privacy invariants).
-                        let image = Image(uiImage: skyPhoto)
-                        ShareLink(item: image, preview: SharePreview("Today's sky", image: image)) {
-                            Text("Share sky")
-                        }
-                        .buttonStyle(SkyPopButtonStyle(kind: .cream, onAccent: true))
-                        .accessibilityIdentifier("verification.shareSky")
-                    }
-                    Button("Done", action: onDone)
-                        .buttonStyle(SkyPopButtonStyle(kind: .primary, onAccent: true))
-                        .accessibilityIdentifier("verification.done")
-                }
-                .padding(.horizontal, SkyLayout.screenMargin)
-                .padding(.bottom, SkySpacing.s6)
+                SkyPrimaryButton("Done", action: onDone)
+                    .padding(.horizontal, SkyLayout.screenMargin)
+                    .padding(.bottom, SkySpacing.s6)
             }
         }
         .accessibilityIdentifier("verification.success")
@@ -96,46 +77,6 @@ struct VerificationSuccessView: View {
             #endif
         }
         .task { await performUnlock() }
-    }
-
-    /// A tilted instant-photo "sticker" of today's sky with a sun "Day N!"
-    /// badge — outlined like a sticker, but not a button.
-    private var polaroid: some View {
-        let frame = RoundedRectangle(cornerRadius: SkyRadius.card, style: .continuous)
-        let photoShape = RoundedRectangle(cornerRadius: SkyRadius.chip, style: .continuous)
-        return VStack(spacing: SkySpacing.s3) {
-            ZStack {
-                SkyColor.primarySky
-                if let skyPhoto {
-                    Image(uiImage: skyPhoto)
-                        .resizable()
-                        .scaledToFill()
-                        .accessibilityLabel("Photo of today's sky")
-                } else {
-                    NimbusView(state: mascotState, size: 160)
-                }
-            }
-            .frame(height: 200)
-            .frame(maxWidth: .infinity)
-            .clipShape(photoShape)
-            .overlay(photoShape.strokeBorder(SkyColor.outlineOnAccent, lineWidth: SkyStroke.outline))
-
-            Text(Date().formatted(.dateTime.month(.abbreviated).day().hour().minute()))
-                .skyText(.button, color: SkyColor.ink)
-        }
-        .padding(SkySpacing.s3)
-        .skyPopSurface(frame, fill: SkyColor.surface, outline: SkyColor.outlineOnAccent,
-                       lineWidth: SkyStroke.outlineHeavy, shadow: SkyPopShadow.chip)
-        .overlay(alignment: .topTrailing) {
-            SkyPopPill("Day \(max(displayedStreak, 1))!", fill: SkyColor.popSun,
-                       textColor: SkyColor.inkOnAccent, raised: true, onAccent: true)
-                .rotationEffect(.degrees(10))
-                .offset(x: SkySpacing.s3, y: -SkySpacing.s4)
-                .accessibilityHidden(true) // the streak badge below says it
-        }
-        .frame(maxWidth: 300)
-        .rotationEffect(.degrees(-3))
-        .padding(.horizontal, SkySpacing.s10)
     }
 
     private func performUnlock() async {

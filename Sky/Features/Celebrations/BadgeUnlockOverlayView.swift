@@ -2,9 +2,6 @@
 // S-CEL-01 — Badge-earned celebration overlay. Shown after S-VER-06 "Done" when
 // a new badge has been unlocked. Multiple badges are shown in sequence.
 // Sky_App_Workflow.md §Group H S-CEL-01; Roadmap Phase 12.
-//
-// Sky Pop: the badge and its copy sit on a hairline card (info), and the one
-// tappable thing — "Nice" — is the outlined Pop button.
 
 import SwiftUI
 
@@ -25,33 +22,35 @@ struct BadgeUnlockOverlayView: View {
 
     var body: some View {
         ZStack {
-            // Dim background — tappable to dismiss. Fixed ink scrim (never pure
-            // black), the same in both modes.
-            SkyColor.inkOnAccent.opacity(0.55)
+            // Dim background — tappable to dismiss
+            Color.black.opacity(0.45)
                 .ignoresSafeArea()
                 .onTapGesture { onDismiss() }
 
-            SkyCard {
-                VStack(spacing: SkySpacing.s5) {
-                    // Badge artwork
-                    badgeArt
+            VStack(spacing: SkySpacing.s6) {
+                Spacer()
 
-                    // Title + description
-                    VStack(spacing: SkySpacing.s2) {
-                        Text("Badge unlocked: \(badge.displayName)")
-                            .skyText(.titleM, color: SkyColor.ink)
-                            .multilineTextAlignment(.center)
+                // Badge artwork
+                badgeArt
 
-                        Text(badge.description)
-                            .skyText(.body, color: SkyColor.inkSoft)
-                            .multilineTextAlignment(.center)
-                    }
+                // Title + description
+                VStack(spacing: SkySpacing.s2) {
+                    Text("Badge unlocked: \(badge.displayName)")
+                        .skyText(.titleM, color: SkyColor.ink)
+                        .multilineTextAlignment(.center)
 
-                    SkyPopButton("Nice") { onDismiss() }
+                    Text(badge.description)
+                        .skyText(.body, color: SkyColor.inkSoft)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, SkyLayout.screenMargin)
                 }
-                .frame(maxWidth: .infinity)
+
+                SkyPrimaryButton("Nice") { onDismiss() }
+                    .padding(.horizontal, SkyLayout.screenMargin)
+
+                Spacer()
             }
-            .padding(.horizontal, SkyLayout.screenMarginCard)
+            .padding(.vertical, SkySpacing.s8)
         }
         .onAppear {
             appeared = true
@@ -104,9 +103,4 @@ struct BadgeUnlockOverlayView: View {
 
 #Preview("S-CEL-01 — Wanderer") {
     BadgeUnlockOverlayView(badge: .wanderer, onDismiss: {})
-}
-
-#Preview("S-CEL-01 — dark") {
-    BadgeUnlockOverlayView(badge: .firstLight, onDismiss: {})
-        .preferredColorScheme(.dark)
 }
